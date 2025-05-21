@@ -5,7 +5,7 @@ const http = require('http');
 
 const WS_PORT = 9002;
 const OSC_TARGET_PORT = 42856;
-const OSC_TARGET_HOST = '57.128.188.155';
+const OSC_TARGET_HOST = '127.0.0.1';
 const OSC_QUERY_PORT = 9050;
 
 class OSCRelay {
@@ -28,7 +28,7 @@ class OSCRelay {
             '/avatar/parameters/VRCFaceBlendV': { type: 'float', range: [0, 1] },
             '/avatar/parameters/VRCEmote': { type: 'int', range: [0, 12] },
             '/avatar/parameters/IsLocal': { type: 'bool' },
-            // Add more default parameters as needed
+            '/avatar/parameters/Voice': { type: 'float', range: [0, 1] },
         };
     }
 
