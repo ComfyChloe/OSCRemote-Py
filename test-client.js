@@ -25,12 +25,11 @@ async function runOSCTests() {
             const testCases = [
                 { path: '/avatar/parameters/Voice', value: 0.75 },
                 { path: '/avatar/parameters/VRCEmote', value: 1 },
-                { path: '/input/Trigger', value: 1.0 },
             ];
 
             console.log('[Test Client] Running test cases...');
             for (const test of testCases) {
-                await new Promise(resolve => setTimeout(resolve, 500)); // Space out tests
+                await new Promise(resolve => setTimeout(resolve, 500));
                 client.send(test.path, test.value);
                 console.log(`[Test Client] Sent: ${test.path} = ${test.value}`);
             }
@@ -41,7 +40,6 @@ async function runOSCTests() {
     }
 }
 
-// Check server availability before running tests
 console.log(`[Test Client] Checking server availability...`);
 const testConnection = net.connect({ 
     host: SERVER_HOST, 

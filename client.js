@@ -40,11 +40,27 @@ class OSCRelayClient {
 
                 this.ws.on('message', (data) => {
                     const message = JSON.parse(data);
-                    if (message.type === 'osc_tunnel' && this.shouldProcessMessage(message)) {
-                        console.log(`[Client] Received tunneled OSC from ${message.source}:`, message.address);
-                        this.messageHandlers.forEach(handler => handler(message));
-                    } else if (this.shouldProcessMessage(message)) {
-                        this.messageHandlers.forEach(handler => handler(message));
+                    switch (message.type) {
+                        case 'init':
+                            this.handleInit(message);
+                            break;
+                        case 'schema_update':
+                            this.handleSchemaUpdate(message.schema);
+                            break;
+                        case 'parameter_update':
+                            this.handleParameterUpdate(message);
+                            break;
+                        case 'osc_tunnel':
+                            if (this.shouldProcessMessage(message)) {
+                                console.log(`[Client] Received tunneled OSC from ${message.source}:`, message.address);
+                                this.messageHandlers.forEach(handler => handler(message));
+                            }
+                            break;
+                        default:
+                            if (this.shouldProcessMessage(message)) {
+                                this.messageHandlers.forEach(handler => handler(message));
+                            }
+                            break;
                     }
                 });
 
@@ -101,6 +117,16 @@ class OSCRelayClient {
         }
     }
 
+    updateParameter(address, value) {
+        if (this.connected) {
+            this.ws.send(JSON.stringify({
+                type: 'parameter_update',
+                address,
+                value
+            }));
+        }
+    }
+
     onMessage(handler) {
         this.messageHandlers.add(handler);
     }
@@ -113,6 +139,21 @@ class OSCRelayClient {
         if (this.filters.size === 0) return true;
         return Array.from(this.filters).some(pattern => 
             message.address.match(new RegExp(pattern)));
+    }
+
+    handleInit(message) {
+        console.log('[Client] Received init message:', message);
+        // Handle initialization logic here
+    }
+
+    handleSchemaUpdate(schema) {
+        console.log('[Client] Received schema update:', schema);
+        this.schema = schema;
+    }
+
+    handleParameterUpdate(message) {
+        console.log('[Client] Received parameter update:', message);
+        // Handle parameter update logic here
     }
 }
 
