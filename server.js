@@ -5,8 +5,8 @@ const http = require('http');
 
 const WS_PORT = 9002;
 const OSC_TARGET_PORT = 42856;
-const OSC_TARGET_HOST = 'localhost';
-const OSC_QUERY_PORT = 9000;
+const OSC_TARGET_HOST = '57.128.188.155';
+const OSC_QUERY_PORT = 9050;
 
 class OSCRelay {
     constructor() {
@@ -14,6 +14,8 @@ class OSCRelay {
         this.wsServer = new WebSocket.Server({ port: WS_PORT });
         this.oscClient = new osc.Client(OSC_TARGET_HOST, OSC_TARGET_PORT);
         this.udpServer = dgram.createSocket('udp4');
+        this.connectedClients = new Map(); // Track client connections
+        this.activeOSCStreams = new Set(); // Track active OSC streams
 
         this.setupOSCQuery();
         this.setupWebSocket();
@@ -93,20 +95,57 @@ class OSCRelay {
     }
 
     setupWebSocket() {
-        this.wsServer.on('connection', (ws) => {
-            console.log('New WebSocket client connected');
+        this.wsServer.on('connection', (ws, req) => {
+            const clientId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
+            this.connectedClients.set(clientId, ws);
+            
+            console.log(`[Server] New client connected: ${clientId}`);
+            console.log(`[Server] Total connected clients: ${this.connectedClients.size}`);
 
-            ws.on('message', (data) => {
-                const oscMessage = JSON.parse(data);
-                if (this.validateOSCMessage(oscMessage)) {
-                    this.oscClient.send(oscMessage.address, ...oscMessage.args);
+            ws.on('message', async (data) => {
+                const message = JSON.parse(data);
+                
+                if (message.type === 'osc_tunnel') {
+                    // Handle tunneled OSC data
+                    console.log(`[Server] Received tunneled OSC from ${clientId}:`, message.address);
+                    if (this.validateOSCMessage(message)) {
+                        await this.forwardOSCToTarget(message, clientId);
+                    }
+                } else if (message.type === 'osc_subscribe') {
+                    // Handle OSC stream subscription
+                    this.activeOSCStreams.add(clientId);
+                    console.log(`[Server] Client ${clientId} subscribed to OSC stream`);
                 }
             });
 
             ws.on('close', () => {
-                console.log('Client disconnected');
+                this.connectedClients.delete(clientId);
+                this.activeOSCStreams.delete(clientId);
+                console.log(`[Server] Client disconnected: ${clientId}`);
             });
         });
+    }
+
+    async forwardOSCToTarget(message, senderId) {
+        try {
+            // Forward to external OSC server
+            this.oscClient.send(message.address, ...message.args);
+            console.log(`[Server] Forwarded OSC to ${OSC_TARGET_HOST}:${OSC_TARGET_PORT}`);
+
+            // Broadcast to other connected clients
+            this.connectedClients.forEach((ws, clientId) => {
+                if (clientId !== senderId && this.activeOSCStreams.has(clientId)) {
+                    ws.send(JSON.stringify({
+                        type: 'osc_tunnel',
+                        address: message.address,
+                        args: message.args,
+                        source: senderId
+                    }));
+                }
+            });
+        } catch (error) {
+            console.error(`[Server] Failed to forward OSC:`, error);
+        }
     }
 
     setupUDPListener() {
@@ -114,11 +153,16 @@ class OSCRelay {
         
         this.udpServer.on('message', (msg, rinfo) => {
             const oscMsg = osc.fromBuffer(msg);
-            this.wsServer.clients.forEach(client => {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify({
+            console.log(`[Server] Received UDP OSC from ${rinfo.address}:${rinfo.port}`);
+
+            // Broadcast to all subscribed WebSocket clients
+            this.connectedClients.forEach((ws, clientId) => {
+                if (this.activeOSCStreams.has(clientId)) {
+                    ws.send(JSON.stringify({
+                        type: 'osc_tunnel',
                         address: oscMsg.address,
-                        args: oscMsg.args
+                        args: oscMsg.args,
+                        source: `${rinfo.address}:${rinfo.port}`
                     }));
                 }
             });

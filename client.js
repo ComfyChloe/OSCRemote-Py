@@ -12,6 +12,7 @@ class OSCRelayClient {
         this.connected = false;
         this.connectionAttempts = 0;
         this.maxRetries = 3;
+        this.oscStreamActive = false;
     }
 
     async connect() {
@@ -26,6 +27,7 @@ class OSCRelayClient {
                     console.log('[Client] Connected to OSC relay');
                     this.connected = true;
                     this.connectionAttempts = 0;
+                    this.subscribeToOSC();
                     resolve();
                 });
 
@@ -38,7 +40,10 @@ class OSCRelayClient {
 
                 this.ws.on('message', (data) => {
                     const message = JSON.parse(data);
-                    if (this.shouldProcessMessage(message)) {
+                    if (message.type === 'osc_tunnel' && this.shouldProcessMessage(message)) {
+                        console.log(`[Client] Received tunneled OSC from ${message.source}:`, message.address);
+                        this.messageHandlers.forEach(handler => handler(message));
+                    } else if (this.shouldProcessMessage(message)) {
                         this.messageHandlers.forEach(handler => handler(message));
                     }
                 });
@@ -59,6 +64,14 @@ class OSCRelayClient {
         }
     }
 
+    subscribeToOSC() {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'osc_subscribe' }));
+            this.oscStreamActive = true;
+            console.log('[Client] Subscribed to OSC stream');
+        }
+    }
+
     async fetchOSCSchema() {
         try {
             console.log('[Client] Fetching OSC schema from port', this.queryPort);
@@ -70,16 +83,20 @@ class OSCRelayClient {
             console.log('[Client] Loaded OSC schema:', Object.keys(this.schema).length, 'endpoints');
         } catch (err) {
             console.warn('[Client] Could not fetch OSC schema:', err.message);
-            this.schema = null; // Continue without schema
+            this.schema = null; // Continue without
         }
     }
 
     send(address, ...args) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            const message = { address, args };
+            const message = {
+                type: 'osc_tunnel',
+                address,
+                args
+            };
             if (this.shouldProcessMessage(message)) {
                 this.ws.send(JSON.stringify(message));
-                console.log('[Client] Sent:', message);
+                console.log('[Client] Sent OSC message:', address);
             }
         }
     }
