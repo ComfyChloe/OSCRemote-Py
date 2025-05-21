@@ -2,7 +2,6 @@ const WebSocket = require('ws');
 const osc = require('node-osc');
 const dgram = require('dgram');
 const http = require('http');
-const fetch = require('node-fetch');
 
 const WS_PORT = 9002;
 const VRCHAT_OSC_PORT = 9000;
@@ -14,34 +13,42 @@ class OSCRelay {
         this.connectedClients = new Map();
         this.parameterValues = new Map();
         
-        // Setup OSC client to VRChat
+        // Setup VRChat OSC client
         this.vrchatClient = new osc.Client('127.0.0.1', VRCHAT_OSC_PORT);
         
-        // Create server components
         this.setupRelayServer();
         this.setupOSCListener();
-        
-        // Initial VRChat schema fetch
-        this.fetchVRChatSchema();
+        this.startVRChatMonitoring();
     }
 
-    async fetchVRChatSchema() {
-        try {
-            console.log('[Server] Fetching VRChat OSC schema...');
-            const response = await fetch(`http://127.0.0.1:${VRCHAT_OSC_PORT}/avatar/parameters`);
-            this.oscSchema = await response.json();
-            console.log('[Server] Loaded', Object.keys(this.oscSchema).length, 'parameters');
-            
-            // Broadcast schema update to all clients
-            this.broadcastToClients({
-                type: 'schema_update',
-                schema: this.oscSchema
-            });
-        } catch (err) {
-            console.warn('[Server] VRChat OSC schema fetch failed:', err.message);
-            // Retry after delay
-            setTimeout(() => this.fetchVRChatSchema(), 5000);
-        }
+    startVRChatMonitoring() {
+        const testOSC = () => {
+            try {
+                const testSocket = dgram.createSocket('udp4');
+                testSocket.send('', 0, 0, VRCHAT_OSC_PORT, '127.0.0.1', (err) => {
+                    if (!err) {
+                        console.log('[Server] VRChat OSC port detected');
+                        this.broadcastStatus(true);
+                    }
+                    testSocket.close();
+                });
+            } catch (err) {
+                console.warn('[Server] VRChat OSC not available');
+                this.broadcastStatus(false);
+            }
+        };
+
+        // Check VRChat availability periodically
+        setInterval(testOSC, 5000);
+        testOSC(); // Initial check
+    }
+
+    broadcastStatus(isAvailable) {
+        this.broadcastToClients({
+            type: 'status',
+            vrchatAvailable: isAvailable,
+            timestamp: new Date().toISOString()
+        });
     }
 
     setupRelayServer() {
@@ -82,12 +89,12 @@ class OSCRelay {
     }
 
     handleParameterUpdate(address, value) {
-        // Update stored value
+        // Store parameter value
         this.parameterValues.set(address, value);
 
-        // Send to VRChat
+        // Forward to VRChat
         this.vrchatClient.send(address, value);
-        console.log(`[Server] Parameter ${address} set to ${value}`);
+        console.log(`[Server] Parameter ${address} = ${value}`);
 
         // Broadcast to other clients
         this.broadcastToClients({

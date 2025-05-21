@@ -1,5 +1,4 @@
 const WebSocket = require('ws');
-const fetch = require('node-fetch');  // Add this import
 
 class OSCRelayClient {
     constructor(serverUrl) {
@@ -17,9 +16,6 @@ class OSCRelayClient {
 
     async connect() {
         try {
-            this.connectionAttempts++;
-            await this.fetchOSCSchema();
-            
             return new Promise((resolve, reject) => {
                 this.ws = new WebSocket(this.serverUrl);
 
@@ -27,7 +23,6 @@ class OSCRelayClient {
                     console.log('[Client] Connected to OSC relay');
                     this.connected = true;
                     this.connectionAttempts = 0;
-                    this.subscribeToOSC();
                     resolve();
                 });
 
@@ -75,8 +70,7 @@ class OSCRelayClient {
             });
         } catch (err) {
             console.error('[Client] Connection failed:', err.message);
-            // Continue even if schema fetch fails
-            return this.setupWebSocket();
+            throw err;
         }
     }
 
@@ -85,21 +79,6 @@ class OSCRelayClient {
             this.ws.send(JSON.stringify({ type: 'osc_subscribe' }));
             this.oscStreamActive = true;
             console.log('[Client] Subscribed to OSC stream');
-        }
-    }
-
-    async fetchOSCSchema() {
-        try {
-            console.log('[Client] Fetching OSC schema from port', this.queryPort);
-            const response = await fetch(`http://localhost:${this.queryPort}/avatar`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            this.schema = await response.json();
-            console.log('[Client] Loaded OSC schema:', Object.keys(this.schema).length, 'endpoints');
-        } catch (err) {
-            console.warn('[Client] Could not fetch OSC schema:', err.message);
-            this.schema = null; // Continue without
         }
     }
 
