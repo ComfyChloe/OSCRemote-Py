@@ -3,7 +3,8 @@ const osc = require('node-osc');
 const dgram = require('dgram');
 
 const WS_PORT = 4953;
-const VRCHAT_OSC_PORT = 9000;
+const VRCHAT_OSC_PORT = 9000;  // VRChat's default OSC port
+const VRCHAT_OSC_RECEIVE_PORT = 9001;  // Port where VRChat sends data
 const LOCAL_OSC_PORT = 9100;
 
 class OSCRelay {
@@ -11,7 +12,13 @@ class OSCRelay {
         this.connectedClients = new Map();
         this.parameterValues = new Map();
         this.vrchatClient = new osc.Client('127.0.0.1', VRCHAT_OSC_PORT);
+        this.oscServer = new osc.Server(VRCHAT_OSC_RECEIVE_PORT, '127.0.0.1');
         
+        console.log(`[Server] VRChat OSC Setup:`);
+        console.log(`[Server] - Listening for VRChat on port ${VRCHAT_OSC_RECEIVE_PORT}`);
+        console.log(`[Server] - Sending to VRChat on port ${VRCHAT_OSC_PORT}`);
+        console.log(`[Server] WebSocket server running on port ${WS_PORT}`);
+
         this.setupRelayServer();
         this.setupOSCListener();
     }
@@ -25,7 +32,6 @@ class OSCRelay {
             
             console.log(`[Server] Client connected: ${clientId}`);
 
-            // Send current parameter values
             ws.send(JSON.stringify({
                 type: 'init',
                 values: Object.fromEntries(this.parameterValues)
@@ -68,10 +74,23 @@ class OSCRelay {
     }
 
     setupOSCListener() {
-        this.oscServer = new osc.Server(LOCAL_OSC_PORT, '127.0.0.1');
+        this.oscServer.on('message', (msg, rinfo) => {
+            const [address, ...args] = msg;
+            console.log(`[Server] Received from VRChat: ${address} = ${args.join(', ')}`);
+
+            // Relay to all WebSocket clients
+            this.broadcastToClients({
+                type: 'osc_message',
+                address,
+                args,
+                source: 'vrchat'
+            });
+        });
+
+        const localOscServer = new osc.Server(LOCAL_OSC_PORT, '127.0.0.1');
         console.log(`[Server] Listening for VRChat OSC on port ${LOCAL_OSC_PORT}`);
 
-        this.oscServer.on('message', (msg) => {
+        localOscServer.on('message', (msg) => {
             const [address, ...args] = msg;
             console.log(`[Server] Received OSC: ${address} ${args.join(' ')}`);
 
