@@ -1,19 +1,97 @@
 const WebSocket = require('ws');
 const osc = require('node-osc');
 const dgram = require('dgram');
+const http = require('http');
 
 const WS_PORT = 9002;
 const OSC_TARGET_PORT = 42856;
-const OSC_TARGET_HOST = 'localhost'; 
+const OSC_TARGET_HOST = 'localhost';
+const OSC_QUERY_PORT = 9003;
 
 class OSCRelay {
     constructor() {
+        this.oscSchema = {};
         this.wsServer = new WebSocket.Server({ port: WS_PORT });
         this.oscClient = new osc.Client(OSC_TARGET_HOST, OSC_TARGET_PORT);
         this.udpServer = dgram.createSocket('udp4');
 
+        this.setupOSCQuery();
         this.setupWebSocket();
         this.setupUDPListener();
+    }
+
+    setupOSCQuery() {
+        const server = http.createServer((req, res) => {
+            if (req.url === '/') {
+                // OSC Query host info response
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    DESCRIPTION: "VRChat OSC Relay",
+                    HOST_NAME: OSC_TARGET_HOST,
+                    NAME: "VRChat",
+                    OSC_PORT: OSC_TARGET_PORT,
+                    OSC_TRANSPORT: "UDP",
+                    EXTENSIONS: {
+                        ACCESS: true,
+                        VALUE: true,
+                        RANGE: true,
+                        TYPE: true
+                    }
+                }));
+            } else if (req.url === '/avatar') {
+                // Query VRChat for schema
+                this.fetchVRChatSchema().then(schema => {
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(schema));
+                });
+            }
+        });
+
+        server.listen(OSC_QUERY_PORT, () => {
+            console.log(`OSC Query server listening on port ${OSC_QUERY_PORT}`);
+        });
+    }
+
+    async fetchVRChatSchema() {
+        return new Promise((resolve) => {
+            const client = new osc.Client(OSC_TARGET_HOST, OSC_TARGET_PORT);
+            client.send('/vrchat/request/schema', (schema) => {
+                this.oscSchema = schema;
+                resolve(schema);
+            });
+        });
+    }
+
+    validateOSCMessage(message) {
+        if (!this.oscSchema[message.address]) {
+            console.warn(`Unknown OSC address: ${message.address}`);
+            return false;
+        }
+
+        const schema = this.oscSchema[message.address];
+        if (schema.type && !this.validateType(message.args[0], schema.type)) {
+            console.warn(`Invalid type for ${message.address}: expected ${schema.type}`);
+            return false;
+        }
+
+        if (schema.range) {
+            const [min, max] = schema.range;
+            if (message.args[0] < min || message.args[0] > max) {
+                console.warn(`Value out of range for ${message.address}: ${message.args[0]}`);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    validateType(value, type) {
+        switch (type) {
+            case 'float': return typeof value === 'number';
+            case 'bool': return typeof value === 'boolean';
+            case 'int': return Number.isInteger(value);
+            default: return true;
+        }
     }
 
     setupWebSocket() {
@@ -22,7 +100,9 @@ class OSCRelay {
 
             ws.on('message', (data) => {
                 const oscMessage = JSON.parse(data);
-                this.oscClient.send(oscMessage.address, ...oscMessage.args);
+                if (this.validateOSCMessage(oscMessage)) {
+                    this.oscClient.send(oscMessage.address, ...oscMessage.args);
+                }
             });
 
             ws.on('close', () => {
