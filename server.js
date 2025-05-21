@@ -4,7 +4,7 @@ const dgram = require('dgram');
 const http = require('http');
 
 const WS_PORT = 9002;
-const OSC_TARGET_PORT = 42856;
+const OSC_TARGET_PORT = 9100;  // Changed to 9100
 const OSC_TARGET_HOST = '127.0.0.1';
 const OSC_QUERY_PORT = 9050;
 
@@ -151,13 +151,17 @@ class OSCRelay {
     setupUDPListener() {
         this.udpServer.bind(OSC_TARGET_PORT + 1);
         
+        this.udpServer.on('listening', () => {
+            console.log(`[Server] UDP listener active on port ${OSC_TARGET_PORT + 1}`);
+        });
+        
         this.udpServer.on('message', (msg, rinfo) => {
             const oscMsg = osc.fromBuffer(msg);
-            console.log(`[Server] Received UDP OSC from ${rinfo.address}:${rinfo.port}`);
+            console.log(`[Server] Received UDP OSC from ${rinfo.address}:${rinfo.port} -> ${oscMsg.address}`);
 
             // Broadcast to all subscribed WebSocket clients
             this.connectedClients.forEach((ws, clientId) => {
-                if (this.activeOSCStreams.has(clientId)) {
+                if (this.activeOSCStreams.has(clientId) && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         type: 'osc_tunnel',
                         address: oscMsg.address,

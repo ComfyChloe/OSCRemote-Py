@@ -1,52 +1,58 @@
 const OSCRelayClient = require('./client');
 const net = require('net');
 
+const SERVER_HOST = '57.128.188.155';
+const SERVER_PORT = 9002;
+const LOCAL_TEST_PORT = 9100;
+
 async function runOSCTests() {
-    const client = new OSCRelayClient('ws://localhost:9002');
+    const client = new OSCRelayClient(`ws://${SERVER_HOST}:${SERVER_PORT}`);
 
     try {
-        // Test message handler
         client.onMessage(message => {
             console.log('[Test Client] Received OSC Message:', {
                 timestamp: new Date().toISOString(),
-                ...message
+                source: message.source || 'unknown',
+                address: message.address,
+                args: message.args
             });
         });
 
-        console.log('[Test Client] Starting connection...');
+        console.log(`[Test Client] Connecting to ${SERVER_HOST}:${SERVER_PORT}...`);
         await client.connect();
 
-        // Only run tests if connected successfully
         if (client.connected) {
-            // Standard VRChat parameter test cases
             const testCases = [
-                { path: '/avatar/parameters/VRCFaceBlendH', value: 0.5 },
+                { path: '/avatar/parameters/Voice', value: 0.75 },
                 { path: '/avatar/parameters/VRCEmote', value: 1 },
-                { path: '/avatar/parameters/VRCFaceBlendV', value: 0.7 },
-                { path: '/avatar/parameters/IsLocal', value: true },
+                { path: '/input/Trigger', value: 1.0 },
             ];
 
             console.log('[Test Client] Running test cases...');
-            testCases.forEach(({ path, value }) => {
-                client.send(path, value);
-                console.log(`[Test Client] Sent test message to ${path}:`, value);
-            });
-        } else {
-            console.error('[Test Client] Not connected - skipping tests');
+            for (const test of testCases) {
+                await new Promise(resolve => setTimeout(resolve, 500)); // Space out tests
+                client.send(test.path, test.value);
+                console.log(`[Test Client] Sent: ${test.path} = ${test.value}`);
+            }
         }
     } catch (error) {
-        console.error('[Test Client] Test failed:', error.message);
+        console.error('[Test Client] Error:', error.message);
         process.exit(1);
     }
 }
 
-// Ensure server is running before starting tests
-const testConnection = net.connect({ port: 9002 }, () => {
+// Check server availability before running tests
+console.log(`[Test Client] Checking server availability...`);
+const testConnection = net.connect({ 
+    host: SERVER_HOST, 
+    port: SERVER_PORT 
+}, () => {
+    console.log('[Test Client] Server is available');
     testConnection.end();
     runOSCTests().catch(console.error);
 });
 
-testConnection.on('error', () => {
-    console.error('[Test Client] Error: OSC Relay server is not running on port 9002');
+testConnection.on('error', (err) => {
+    console.error(`[Test Client] Server check failed: ${err.message}`);
     process.exit(1);
 });
