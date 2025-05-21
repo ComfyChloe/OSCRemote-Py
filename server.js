@@ -6,11 +6,11 @@ const http = require('http');
 const WS_PORT = 9002;
 const OSC_TARGET_PORT = 42856;
 const OSC_TARGET_HOST = 'localhost';
-const OSC_QUERY_PORT = 9003;
+const OSC_QUERY_PORT = 9000;
 
 class OSCRelay {
     constructor() {
-        this.oscSchema = {};
+        this.oscSchema = this.getDefaultSchema();
         this.wsServer = new WebSocket.Server({ port: WS_PORT });
         this.oscClient = new osc.Client(OSC_TARGET_HOST, OSC_TARGET_PORT);
         this.udpServer = dgram.createSocket('udp4');
@@ -18,6 +18,16 @@ class OSCRelay {
         this.setupOSCQuery();
         this.setupWebSocket();
         this.setupUDPListener();
+    }
+
+    getDefaultSchema() {
+        return {
+            '/avatar/parameters/VRCFaceBlendH': { type: 'float', range: [0, 1] },
+            '/avatar/parameters/VRCFaceBlendV': { type: 'float', range: [0, 1] },
+            '/avatar/parameters/VRCEmote': { type: 'int', range: [0, 12] },
+            '/avatar/parameters/IsLocal': { type: 'bool' },
+            // Add more default parameters as needed
+        };
     }
 
     setupOSCQuery() {
@@ -39,33 +49,21 @@ class OSCRelay {
                     }
                 }));
             } else if (req.url === '/avatar') {
-                // Query VRChat for schema
-                this.fetchVRChatSchema().then(schema => {
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(schema));
-                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(this.oscSchema));
             }
         });
 
         server.listen(OSC_QUERY_PORT, () => {
             console.log(`OSC Query server listening on port ${OSC_QUERY_PORT}`);
-        });
-    }
-
-    async fetchVRChatSchema() {
-        return new Promise((resolve) => {
-            const client = new osc.Client(OSC_TARGET_HOST, OSC_TARGET_PORT);
-            client.send('/vrchat/request/schema', (schema) => {
-                this.oscSchema = schema;
-                resolve(schema);
-            });
+            console.log('Available parameters:', Object.keys(this.oscSchema).join(', '));
         });
     }
 
     validateOSCMessage(message) {
         if (!this.oscSchema[message.address]) {
             console.warn(`Unknown OSC address: ${message.address}`);
-            return false;
+            return true; // Allow unknown addresses to pass through
         }
 
         const schema = this.oscSchema[message.address];
