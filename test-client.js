@@ -2,7 +2,7 @@ const OSCRelayClient = require('./client');
 const net = require('net');
 
 const SERVER_HOST = '57.128.188.155';
-const SERVER_PORT = 9002;
+const SERVER_PORT = 4953;
 const LOCAL_TEST_PORT = 9100;
 
 async function runOSCTests() {

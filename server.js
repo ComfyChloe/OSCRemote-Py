@@ -2,7 +2,7 @@ const WebSocket = require('ws');
 const osc = require('node-osc');
 const dgram = require('dgram');
 
-const WS_PORT = 74526;
+const WS_PORT = 4953;
 const VRCHAT_OSC_PORT = 9000;
 const LOCAL_OSC_PORT = 9100;
 
