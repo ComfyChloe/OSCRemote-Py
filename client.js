@@ -6,12 +6,9 @@ class OSCRelayClient {
         this.ws = null;
         this.messageHandlers = new Set();
         this.filters = new Set();
-        this.schema = null;
-        this.queryPort = 9000;
         this.connected = false;
         this.connectionAttempts = 0;
-        this.maxRetries = 3;
-        this.oscStreamActive = false;
+        this.maxRetries = 5;
     }
 
     async connect() {
@@ -26,36 +23,17 @@ class OSCRelayClient {
                     resolve();
                 });
 
+                this.ws.on('message', (data) => {
+                    const message = JSON.parse(data);
+                    if (this.shouldProcessMessage(message)) {
+                        this.messageHandlers.forEach(handler => handler(message));
+                    }
+                });
+
                 this.ws.on('error', (error) => {
                     console.error('[Client] WebSocket error:', error.message);
                     if (!this.connected && this.connectionAttempts >= this.maxRetries) {
                         reject(new Error(`Failed to connect after ${this.maxRetries} attempts`));
-                    }
-                });
-
-                this.ws.on('message', (data) => {
-                    const message = JSON.parse(data);
-                    switch (message.type) {
-                        case 'init':
-                            this.handleInit(message);
-                            break;
-                        case 'schema_update':
-                            this.handleSchemaUpdate(message.schema);
-                            break;
-                        case 'parameter_update':
-                            this.handleParameterUpdate(message);
-                            break;
-                        case 'osc_tunnel':
-                            if (this.shouldProcessMessage(message)) {
-                                console.log(`[Client] Received tunneled OSC from ${message.source}:`, message.address);
-                                this.messageHandlers.forEach(handler => handler(message));
-                            }
-                            break;
-                        default:
-                            if (this.shouldProcessMessage(message)) {
-                                this.messageHandlers.forEach(handler => handler(message));
-                            }
-                            break;
                     }
                 });
 
@@ -77,7 +55,6 @@ class OSCRelayClient {
     subscribeToOSC() {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({ type: 'osc_subscribe' }));
-            this.oscStreamActive = true;
             console.log('[Client] Subscribed to OSC stream');
         }
     }
@@ -122,17 +99,10 @@ class OSCRelayClient {
 
     handleInit(message) {
         console.log('[Client] Received init message:', message);
-        // Handle initialization logic here
-    }
-
-    handleSchemaUpdate(schema) {
-        console.log('[Client] Received schema update:', schema);
-        this.schema = schema;
     }
 
     handleParameterUpdate(message) {
         console.log('[Client] Received parameter update:', message);
-        // Handle parameter update logic here
     }
 }
 
