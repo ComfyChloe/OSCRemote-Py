@@ -1,0 +1,12 @@
+{
+  "name": "osc-relay",
+  "version": "1.0.0",
+  "main": "server.js",
+  "dependencies": {
+    "ws": "^8.13.0",
+    "node-osc": "^8.0.11"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}
