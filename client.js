@@ -1,4 +1,6 @@
 const WebSocket = require('ws');
+const osc = require('node-osc');
+const dgram = require('dgram');
 
 class OSCRelayClient {
     constructor(serverUrl) {
@@ -9,6 +11,32 @@ class OSCRelayClient {
         this.connected = false;
         this.connectionAttempts = 0;
         this.maxRetries = 5;
+        this.parameters = new Map();  // Store parameters in memory
+        
+        // Local VRChat communication
+        this.vrchatReceiver = new osc.Server(9001, '127.0.0.1');
+        this.vrchatSender = new osc.Client('127.0.0.1', 9000);
+        
+        // Setup local OSC handling
+        this.setupLocalOSC();
+    }
+
+    setupLocalOSC() {
+        this.vrchatReceiver.on('message', (msg, rinfo) => {
+            const [address, ...args] = msg;
+            console.log('[Client] Received from VRChat:', address, args);
+            
+            this.parameters.set(address, args[0]);
+            
+            if (this.connected) {
+                this.ws.send(JSON.stringify({
+                    type: 'osc_tunnel',
+                    address,
+                    args,
+                    source: 'vrchat'
+                }));
+            }
+        });
     }
 
     async connect() {
@@ -25,6 +53,11 @@ class OSCRelayClient {
 
                 this.ws.on('message', (data) => {
                     const message = JSON.parse(data);
+                    if (message.type === 'osc_tunnel') {
+                        // Forward remote OSC messages to local VRChat
+                        this.vrchatSender.send(message.address, ...message.args);
+                        this.parameters.set(message.address, message.args[0]);
+                    }
                     if (this.shouldProcessMessage(message)) {
                         this.messageHandlers.forEach(handler => handler(message));
                     }
@@ -103,6 +136,16 @@ class OSCRelayClient {
 
     handleParameterUpdate(message) {
         console.log('[Client] Received parameter update:', message);
+    }
+
+    // Method to get stored parameter value
+    getParameter(address) {
+        return this.parameters.get(address);
+    }
+
+    // Method to get all parameters
+    getAllParameters() {
+        return Object.fromEntries(this.parameters);
     }
 }
 
