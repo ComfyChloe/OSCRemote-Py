@@ -21,15 +21,24 @@ class OSCRelay {
 
             ws.on('message', (data) => {
                 try {
-                    const message = JSON.parse(data);
-                    logger.log(`Received from ${clientId}: ${JSON.stringify(message)}`, 'MESSAGE');
-                    // Add direct console output for OSC messages
-                    console.log(`\n[Server] Received message from ${clientId}:`);
-                    console.log(JSON.stringify(message, null, 2));
-                    this.broadcastToClients(message, clientId);
+                    const message = JSON.parse(data.toString());
+                    
+                    // Debug raw message
+                    console.log('[Server] Raw message received:', data.toString());
+                    
+                    if (message.type === 'osc_tunnel') {
+                        console.log('\n[Server] OSC Message:');
+                        console.log(`From: ${clientId}`);
+                        console.log(`Address: ${message.address}`);
+                        console.log(`Args: ${JSON.stringify(message.args)}`);
+                        console.log(`Source: ${message.source}\n`);
+                        
+                        // Broadcast only OSC messages
+                        this.broadcastToClients(message, clientId);
+                    }
                 } catch (err) {
                     logger.log(`Message processing error from ${clientId}: ${err}`, 'ERROR');
-                    console.error(`[Server] Error processing message: ${err}`);
+                    console.error('[Server] Parse error:', err);
                 }
             });
 
@@ -59,14 +68,16 @@ class OSCRelay {
     }
 
     broadcastToClients(message, senderId) {
+        let broadcastCount = 0;
         this.connectedClients.forEach((ws, clientId) => {
             if (clientId !== senderId && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(message));
                 logger.log(`Broadcast from ${senderId} to ${clientId}: ${JSON.stringify(message)}`, 'BROADCAST');
-                console.log(`\n[Server] Broadcasting from ${senderId} to ${clientId}:`);
-                console.log(JSON.stringify(message, null, 2));
+                console.log(`[Server] Broadcasted OSC to ${clientId}`);
+                broadcastCount++;
             }
         });
+        console.log(`[Server] Message broadcasted to ${broadcastCount} clients\n`);
     }
 }
 
