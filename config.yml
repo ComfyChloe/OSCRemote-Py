@@ -19,3 +19,4 @@ filters:
     - /monitoring/.*
     - /avatar/parameters/VF54_SyncDataNum
     - /avatar/parameters/VF54_SyncPointer
+    - /avatar/parameters/Voice
