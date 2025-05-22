@@ -1,72 +1,36 @@
 const WebSocket = require('ws');
 const logger = require('./logger');
-const readline = require('readline'); // Add this at the top
-
-const WS_PORT = 4953;
+const readline = require('readline');
+const RelayManager = require('./managers/RelayManager');
+const OSCManager = require('./managers/OSCManager');
+const OSCQueryManager = require('./managers/OSCQueryManager');
 
 class OSCRelay {
-    constructor(options = { allowLocalMessages: true }) {
-        this.connectedClients = new Map();
-        this.clientIds = new Map();
-        this.options = options;
-        this.RelayServer();
-        this.Shutdown();
+    constructor(config = {}) {
+        this.config = config;
+        this.relayManager = new RelayManager(config);
+        this.oscManager = new OSCManager(config);
+        this.oscQueryManager = new OSCQueryManager(config);
+        
+        this.setupManagers();
         this.setupKeyboardControls();
     }
 
-    RelayServer() {
-        this.wsServer = new WebSocket.Server({ port: WS_PORT });
+    async setupManagers() {
+        await this.oscManager.createReceiver(this.config.client.port);
+        this.relayManager.startServer();
 
-        this.wsServer.on('connection', (ws, req) => {
-            const clientId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
-            this.connectedClients.set(clientId, ws);
-            console.log(`[Server] Client connected: ${clientId}`); 
-
-            ws.on('message', (data) => {
-                try {
-                    const message = JSON.parse(data.toString());
-                    const timestamp = new Date().toISOString();
-
-                    if (message.type === 'identify') {
-                        this.clientIds.set(clientId, message.userId);
-                        console.log(`[Server] | ${timestamp} | Client ${clientId} identified as: ${message.userId}`);
-                        return;
-                    }
-
-                    const userId = message.userId || this.clientIds.get(clientId) || 'unknown';
-                    if (message.type === 'osc_tunnel') {
-                        console.log(`[Server] | ${timestamp} | User ${userId} | Address: ${message.address} | Args: ${JSON.stringify(message.args)}`);
-                        message.userId = userId;
-                        this.broadcastToClients(message, clientId, timestamp);
-                    }
-                } catch (err) {
-                    console.error(`[Server] Parse error from ${clientId}:`, err);
-                }
-            });
-
-            ws.on('close', () => {
-                this.clientIds.delete(clientId);
-                this.connectedClients.delete(clientId);
-                logger.log(`Client disconnected: ${clientId}`);
+        this.oscManager.onMessage((msg) => {
+            this.relayManager.broadcast({
+                type: 'osc_tunnel',
+                ...msg
             });
         });
-    }
 
-    Shutdown() {
-        process.on('SIGINT', () => {
-            logger.log('Shutting down server...', 'SHUTDOWN');
-
-            this.connectedClients.forEach((ws, clientId) => {
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.close();
-                    logger.log(`Closed connection to ${clientId}`, 'SHUTDOWN');
-                }
-            });
-
-            this.wsServer.close(() => {
-                logger.log('Server shutdown complete', 'SHUTDOWN');
-                process.exit(0);
-            });
+        this.relayManager.messageHandlers.add((clientId, message) => {
+            if (message.type === 'osc_tunnel') {
+                this.oscManager.send(this.config.client.port, message.address, ...message.args);
+            }
         });
     }
 
@@ -96,26 +60,27 @@ class OSCRelay {
             source: 'server'
         };
 
-        this.connectedClients.forEach((ws, clientId) => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(testMessage));
-                console.log(`[Server] Sent test to client: ${this.clientIds.get(clientId) || clientId}`);
-            }
-        });
-    }
-
-    broadcastToClients(message, senderId, timestamp) {
-        this.connectedClients.forEach((ws, clientId) => {
-            const isLocal = clientId.includes('127.0.0.1') || clientId.includes('::1');
-            if ((clientId !== senderId || (isLocal && this.options.allowLocalMessages)) && 
-                ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(message));
-                if (message.type === 'osc_tunnel') {
-                    console.log(`[Server ${timestamp}] Broadcast | From: ${message.userId} | To: ${clientId} | Address: ${message.address} | Args: ${JSON.stringify(message.args)}`);
-                }
-            }
-        });
+        this.relayManager.broadcast(testMessage);
+        console.log('[Server] Sent test message to all clients');
     }
 }
-new OSCRelay();
-logger.log(`Relay started on ws://localhost:${WS_PORT}`, 'START');
+
+// Only run if this is the main module
+if (require.main === module) {
+    const config = {
+        server: {
+            port: 4953,
+            host: '57.128.188.155',
+            allowLocalMessages: true
+        },
+        client: {
+            port: 9001,
+            host: '127.0.0.1'
+        }
+    };
+
+    const relay = new OSCRelay(config);
+    logger.log(`Relay system started`, 'START');
+}
+
+module.exports = OSCRelay;
