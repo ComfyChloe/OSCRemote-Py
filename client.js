@@ -3,6 +3,8 @@ const osc = require('node-osc');
 const dgram = require('dgram');
 const http = require('http');
 const readline = require('readline');
+const yaml = require('yaml');
+const fs = require('fs');
 
 class OSCRelayClient {
     constructor(serverUrl) {
@@ -29,6 +31,20 @@ class OSCRelayClient {
         if (this.isTestMode) {
             this.runTestMode();
         }
+
+        this.loadBlacklist();
+    }
+
+    loadBlacklist() {
+        try {
+            const file = fs.readFileSync('./blacklist.yml', 'utf8');
+            const config = yaml.parse(file);
+            this.blacklist = new Set(config.blacklist || []);
+            console.log('[Client] Loaded blacklist patterns:', this.blacklist.size);
+        } catch (err) {
+            console.warn('[Client] No blacklist.yml found, using empty blacklist');
+            this.blacklist = new Set();
+        }
     }
 
     setupOSCReceiver() {
@@ -38,14 +54,14 @@ class OSCRelayClient {
             
             this.vrchatReceiver.on('message', (msg, rinfo) => {
                 const [address, ...args] = msg;
-                console.log('[Client] Received OSC:', address, args);
+                console.log(`[Client] Local IP: ${rinfo.address} Received OSC:`, address, args);
                 
                 if (this.connected) {
                     this.ws.send(JSON.stringify({
                         type: 'osc_tunnel',
                         address,
                         args,
-                        source: '127.0.0.1'
+                        source: rinfo.address
                     }));
                 }
             });
@@ -120,7 +136,6 @@ class OSCRelayClient {
     }
 
     setupParameterListeners() {
-        // Setup listeners for each discovered parameter
         this.parameters.forEach((data, address) => {
             const accessType = data.access || 'readwrite';
             if (accessType.includes('read')) {
@@ -137,14 +152,12 @@ class OSCRelayClient {
         }
         this.parameters.set(address, { value, type: typeof value });
         
-        // Forward to VRChat
         try {
             this.vrchatSender.send(address, value);
         } catch (err) {
             console.warn(`[Client] Failed to send to VRChat: ${err.message}`);
         }
 
-        // Forward to relay if connected
         if (this.connected) {
             this.send(address, value);
         }
@@ -154,6 +167,7 @@ class OSCRelayClient {
         try {
             return new Promise((resolve, reject) => {
                 this.ws = new WebSocket(this.serverUrl);
+                this.relayId = null;
 
                 this.ws.on('open', () => {
                     console.log('[Client] Connected to OSC relay');
@@ -165,6 +179,7 @@ class OSCRelayClient {
                 this.ws.on('message', (data) => {
                     const message = JSON.parse(data);
                     if (message.type === 'osc_tunnel') {
+                        console.log(`[Client] Relay-${message.source} IP: ${message.source} Received OSC:`, message.address, message.args);
                         // Forward remote OSC messages to local VRChat
                         this.vrchatSender.send(message.address, ...message.args);
                         this.parameters.set(message.address, message.args[0]);
@@ -236,6 +251,15 @@ class OSCRelayClient {
     }
 
     shouldProcessMessage(message) {
+        // Check blacklist first
+        if (this.blacklist.size > 0) {
+            for (const pattern of this.blacklist) {
+                if (message.address.match(new RegExp(pattern))) {
+                    return false;
+                }
+            }
+        }
+        // Then check filters as before
         if (this.filters.size === 0) return true;
         return Array.from(this.filters).some(pattern => 
             message.address.match(new RegExp(pattern)));
