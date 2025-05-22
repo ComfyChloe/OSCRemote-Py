@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const logger = require('./logger');
 
 const WS_PORT = 4953;
 
@@ -15,21 +16,21 @@ class OSCRelay {
             const clientId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
             this.connectedClients.set(clientId, ws);
             
-            console.log(`[Server] Client connected: ${clientId}`);
+            logger.log(`Client connected: ${clientId}`);
 
             ws.on('message', (data) => {
                 try {
                     const message = JSON.parse(data);
-                    // Broadcast to other clients
+                    logger.log(`Received from ${clientId}: ${JSON.stringify(message)}`, 'MESSAGE');
                     this.broadcastToClients(message, clientId);
                 } catch (err) {
-                    console.error('[Server] Message processing error:', err);
+                    logger.log(`Message processing error from ${clientId}: ${err}`, 'ERROR');
                 }
             });
 
             ws.on('close', () => {
                 this.connectedClients.delete(clientId);
-                console.log(`[Server] Client disconnected: ${clientId}`);
+                logger.log(`Client disconnected: ${clientId}`);
             });
         });
     }
@@ -38,10 +39,11 @@ class OSCRelay {
         this.connectedClients.forEach((ws, clientId) => {
             if (clientId !== senderId && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(message));
+                logger.log(`Broadcast from ${senderId} to ${clientId}: ${JSON.stringify(message)}`, 'BROADCAST');
             }
         });
     }
 }
 
 new OSCRelay();
-console.log(`[Server] Relay started on ws://localhost:${WS_PORT}`);
+logger.log(`Relay started on ws://localhost:${WS_PORT}`, 'START');
