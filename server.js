@@ -25,13 +25,13 @@ class OSCRelay {
 
                     if (message.type === 'identify') {
                         this.clientIds.set(clientId, message.userId);
-                        console.log(`[Server ${timestamp}] Client ${clientId} identified as: ${message.userId}`);
+                        console.log(`[Server] | ${timestamp} | Client ${clientId} identified as: ${message.userId}`);
                         return;
                     }
 
                     const userId = message.userId || this.clientIds.get(clientId) || 'unknown';
                     if (message.type === 'osc_tunnel') {
-                        console.log(`[Server] [${timestamp}] User ${userId} | Address: ${message.address} | Args: ${JSON.stringify(message.args)}`);
+                        console.log(`[Server] | ${timestamp} | User ${userId} | Address: ${message.address} | Args: ${JSON.stringify(message.args)}`);
                         message.userId = userId;
                         this.broadcastToClients(message, clientId, timestamp);
                     }

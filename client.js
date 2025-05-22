@@ -146,7 +146,7 @@ class OSCRelayClient {
                 server.on('message', (msg, rinfo) => {
                     const [address, ...args] = msg;
                     if (this.ProcessMessage({ address })) {
-                        console.log(`[Client] Local IP: ${rinfo.address} Received OSC:`, address, args);
+                        console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC:`, address, args);
                         
                         if (this.connected) {
                             this.ws.send(JSON.stringify({
