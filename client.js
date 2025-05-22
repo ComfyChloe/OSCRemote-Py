@@ -15,7 +15,7 @@ class OSCRelayClient {
         this.maxRetries = 5;
         this.parameters = new Map();
 
-        this.localOscPort = 9000;
+        this.localOscPort = 9001;
         this.vrchatSendPort = 9000;
         this.vrchatReceivePort = 9001;
 
@@ -318,12 +318,18 @@ class OSCRelayClient {
     }
 }
 
-// Add direct execution support
 if (require.main === module) {
     const SERVER_HOST = '57.128.188.155';
     const SERVER_PORT = 4953;
     
     const client = new OSCRelayClient(`ws://${SERVER_HOST}:${SERVER_PORT}`);
+    client.connect().then(() => {
+        console.log('[Client] Successfully connected to relay server');
+        client.subscribeToOSC(); 
+    }).catch(err => {
+        console.error('[Client] Failed to connect:', err);
+        process.exit(1);
+    });
 }
 
 module.exports = OSCRelayClient;
