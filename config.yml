@@ -1,0 +1,21 @@
+relay:
+  host: "57.128.188.155"
+  port: 4953
+  maxRetries: 5
+
+osc:
+  local:
+    sendPort: 9000
+    receivePort: 9001
+    queryPort: 9012
+    ip: "127.0.0.1"
+
+filters:
+  blacklist:
+    - /avatar/parameters/VelocityX
+    - /avatar/parameters/VelocityY
+    - /avatar/parameters/VelocityZ
+    - /avatar/parameters/InStation
+    - /monitoring/.*
+    - /avatar/parameters/VF54_SyncDataNum
+    - /avatar/parameters/VF54_SyncPointer

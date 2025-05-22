@@ -8,18 +8,19 @@ const fs = require('fs');
 
 class OSCRelayClient {
     constructor(serverUrl) {
-        this.serverUrl = serverUrl;
+        this.loadConfig();
+        this.serverUrl = serverUrl || `ws://${this.config.relay.host}:${this.config.relay.port}`;
         this.ws = null;
         this.messageHandlers = new Set();
         this.filters = new Set();
         this.connected = false;
         this.connectionAttempts = 0;
-        this.maxRetries = 5;
         this.parameters = new Map();
 
-        this.localOscPort = 9001;
-        this.vrchatSendPort = 9000;
-        this.vrchatReceivePort = 9001;
+        this.localOscPort = this.config.osc.local.receivePort;
+        this.vrchatSendPort = this.config.osc.local.sendPort;
+        this.vrchatReceivePort = this.config.osc.local.receivePort;
+        this.maxRetries = this.config.relay.maxRetries;
 
         this.vrchatSender = new osc.Client('127.0.0.1', this.vrchatSendPort);
         this.setupOSCReceiver();
@@ -35,16 +36,53 @@ class OSCRelayClient {
         this.loadBlacklist();
     }
 
-    loadBlacklist() {
+    loadConfig() {
         try {
-            const file = fs.readFileSync('./blacklist.yml', 'utf8');
-            const config = yaml.parse(file);
-            this.blacklist = new Set(config.blacklist || []);
-            console.log('[Client] Loaded blacklist patterns:', this.blacklist.size);
+            const file = fs.readFileSync('./config.yml', 'utf8');
+            this.config = yaml.parse(file);
+            console.log('[Client] Loaded configuration');
+            
+            this.config.relay = this.config.relay || {};
+            this.config.relay.host = this.config.relay.host || '57.128.188.155';
+            this.config.relay.port = this.config.relay.port || 4953;
+            this.config.relay.maxRetries = this.config.relay.maxRetries || 5;
+
+            this.config.osc = this.config.osc || {};
+            this.config.osc.local = this.config.osc.local || {};
+            this.config.osc.local.sendPort = this.config.osc.local.sendPort || 9000;
+            this.config.osc.local.receivePort = this.config.osc.local.receivePort || 9001;
+            this.config.osc.local.queryPort = this.config.osc.local.queryPort || 9012;
+            this.config.osc.local.ip = this.config.osc.local.ip || '127.0.0.1';
+
+            this.config.filters = this.config.filters || {};
+            this.config.filters.blacklist = this.config.filters.blacklist || [];
+
         } catch (err) {
-            console.warn('[Client] No blacklist.yml found, using empty blacklist');
-            this.blacklist = new Set();
+            console.warn('[Client] No config.yml found, using defaults');
+            this.config = {
+                relay: {
+                    host: '57.128.188.155',
+                    port: 4953,
+                    maxRetries: 5
+                },
+                osc: {
+                    local: {
+                        sendPort: 9000,
+                        receivePort: 9001,
+                        queryPort: 9012,
+                        ip: '127.0.0.1'
+                    }
+                },
+                filters: {
+                    blacklist: []
+                }
+            };
         }
+    }
+
+    loadBlacklist() {
+        this.blacklist = new Set(this.config.filters.blacklist);
+        console.log('[Client] Loaded blacklist patterns:', this.blacklist.size);
     }
 
     setupOSCReceiver() {
@@ -75,7 +113,7 @@ class OSCRelayClient {
     }
 
     startOSCQuery() {
-        const queryPort = 9012;
+        const queryPort = this.config.osc.local.queryPort;
         this.oscQueryServer = http.createServer(this.handleOSCQuery.bind(this));
         
         this.oscQueryServer.on('error', (err) => {
@@ -180,7 +218,6 @@ class OSCRelayClient {
                     const message = JSON.parse(data);
                     if (message.type === 'osc_tunnel') {
                         console.log(`[Client] Relay-${message.source} IP: ${message.source} Received OSC:`, message.address, message.args);
-                        // Forward remote OSC messages to local VRChat
                         this.vrchatSender.send(message.address, ...message.args);
                         this.parameters.set(message.address, message.args[0]);
                     }
@@ -251,9 +288,9 @@ class OSCRelayClient {
     }
 
     shouldProcessMessage(message) {
-        // Check blacklist first
-        if (this.blacklist.size > 0) {
-            for (const pattern of this.blacklist) {
+        // Check blacklist from config
+        if (this.config.filters.blacklist.length > 0) {
+            for (const pattern of this.config.filters.blacklist) {
                 if (message.address.match(new RegExp(pattern))) {
                     return false;
                 }
@@ -343,10 +380,7 @@ class OSCRelayClient {
 }
 
 if (require.main === module) {
-    const SERVER_HOST = '57.128.188.155';
-    const SERVER_PORT = 4953;
-    
-    const client = new OSCRelayClient(`ws://${SERVER_HOST}:${SERVER_PORT}`);
+    const client = new OSCRelayClient(); // Will use config.yml values
     client.connect().then(() => {
         console.log('[Client] Successfully connected to relay server');
         client.subscribeToOSC(); 
