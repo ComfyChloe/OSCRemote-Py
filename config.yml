@@ -3,7 +3,7 @@ relay:
   port: 4953
   maxRetries: 5
   user:
-    name: ""
+    name: Chloe
     id: 7yrqturr
 osc:
   local:

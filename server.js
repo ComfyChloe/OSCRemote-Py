@@ -21,18 +21,19 @@ class OSCRelay {
             ws.on('message', (data) => {
                 try {
                     const message = JSON.parse(data.toString());
+                    const timestamp = new Date().toISOString();
 
                     if (message.type === 'identify') {
                         this.clientIds.set(clientId, message.userId);
-                        console.log(`[Server] Client ${clientId} identified as: ${message.userId}`);
+                        console.log(`[Server ${timestamp}] Client ${clientId} identified as: ${message.userId}`);
                         return;
                     }
 
                     const userId = message.userId || this.clientIds.get(clientId) || 'unknown';
                     if (message.type === 'osc_tunnel') {
-                        console.log(`[Server] User ${userId} Received OSC: ${message.address} ${JSON.stringify(message.args)}`);
+                        console.log(`[Server] [${timestamp}] User ${userId} | Address: ${message.address} | Args: ${JSON.stringify(message.args)}`);
                         message.userId = userId;
-                        this.broadcastToClients(message, clientId);
+                        this.broadcastToClients(message, clientId, timestamp);
                     }
                 } catch (err) {
                     console.error(`[Server] Parse error from ${clientId}:`, err);
@@ -64,12 +65,12 @@ class OSCRelay {
             });
         });
     }
-    broadcastToClients(message, senderId) {
+    broadcastToClients(message, senderId, timestamp) {
         this.connectedClients.forEach((ws, clientId) => {
             if (clientId !== senderId && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(message));
                 if (message.type === 'osc_tunnel') {
-                    console.log(`[Server] Broadcast to ${clientId}: ${message.address} ${JSON.stringify(message.args)}`);
+                    console.log(`[Server ${timestamp}] Broadcast | From: ${message.userId} | To: ${clientId} | Address: ${message.address} | Args: ${JSON.stringify(message.args)}`);
                 }
             }
         });
