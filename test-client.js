@@ -9,6 +9,16 @@ async function runOSCTests() {
     const client = new OSCRelayClient(`ws://${SERVER_HOST}:${SERVER_PORT}`);
 
     try {
+        console.log('[Test Client] Setting up OSC and WebSocket...');
+        await client.connect();
+
+        console.log('[Test Client] Testing parameter discovery...');
+        // Wait for initial parameter discovery
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const params = client.getAllParameters();
+        console.log('[Test Client] Available parameters:', Object.keys(params).length);
+
         client.onMessage(message => {
             console.log('[Test Client] Received OSC Message:', {
                 timestamp: new Date().toISOString(),
@@ -19,7 +29,6 @@ async function runOSCTests() {
         });
 
         console.log(`[Test Client] Connecting to ${SERVER_HOST}:${SERVER_PORT}...`);
-        await client.connect();
 
         if (client.connected) {
             const testCases = [

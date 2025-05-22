@@ -12,28 +12,60 @@ class OSCRelayClient {
         this.connected = false;
         this.connectionAttempts = 0;
         this.maxRetries = 5;
-        this.parameters = new Map();  // Store parameters in memory
-        
-        // Local VRChat communication
-        this.vrchatReceiver = new osc.Server(9001, '127.0.0.1');
-        this.vrchatSender = new osc.Client('127.0.0.1', 9000);
-        
-        // Setup local OSC handling
-        this.setupLocalOSC();
+        this.parameters = new Map();
 
-        // OSCQuery setup
-        this.oscQueryServer = http.createServer(this.handleOSCQuery.bind(this));
-        this.oscQueryPort = 9001; // VRChat looks for OSCQuery on 9001
+        this.localOscPort = 9011;
+        this.vrchatSendPort = 9000;
+        this.vrchatReceivePort = 9001;
+
+        this.vrchatSender = new osc.Client('127.0.0.1', this.vrchatSendPort);
+        this.setupOSCReceiver();
+
         this.startOSCQuery();
     }
 
+    setupOSCReceiver() {
+        try {
+            this.vrchatReceiver = new osc.Server(this.localOscPort, '127.0.0.1');
+            console.log(`[Client] Listening for OSC on port ${this.localOscPort}`);
+            
+            this.vrchatReceiver.on('message', (msg, rinfo) => {
+                const [address, ...args] = msg;
+                console.log('[Client] Received OSC:', address, args);
+                
+                if (this.connected) {
+                    this.ws.send(JSON.stringify({
+                        type: 'osc_tunnel',
+                        address,
+                        args,
+                        source: 'local'
+                    }));
+                }
+            });
+        } catch (err) {
+            console.error('[Client] Failed to setup OSC receiver:', err);
+            this.localOscPort++;
+            if (this.localOscPort < 9020) { // Try up to port 9020
+                this.setupOSCReceiver();
+            }
+        }
+    }
+
     startOSCQuery() {
-        this.oscQueryServer.listen(this.oscQueryPort, '127.0.0.1', () => {
-            console.log(`[Client] OSCQuery server listening on port ${this.oscQueryPort}`);
+        const queryPort = 9012; // Different port for OSCQuery
+        this.oscQueryServer = http.createServer(this.handleOSCQuery.bind(this));
+        
+        this.oscQueryServer.on('error', (err) => {
+            console.warn('[Client] OSCQuery server error:', err.message);
         });
 
-        // Try to discover VRChat's parameters
-        this.discoverVRChatParameters();
+        try {
+            this.oscQueryServer.listen(queryPort, '127.0.0.1', () => {
+                console.log(`[Client] OSCQuery server listening on port ${queryPort}`);
+            });
+        } catch (err) {
+            console.warn('[Client] Could not start OSCQuery server:', err.message);
+        }
     }
 
     handleOSCQuery(req, res) {
@@ -41,7 +73,7 @@ class OSCRelayClient {
             DESCRIPTION: "OSC Relay Client",
             HOST_INFO: {
                 NAME: "OSCRelay",
-                OSC_PORT: 9000,
+                OSC_PORT: this.vrchatSendPort,
                 OSC_TRANSPORT: "UDP",
                 OSC_IP: "127.0.0.1"
             },
@@ -93,46 +125,22 @@ class OSCRelayClient {
     }
 
     handleParameterUpdate(address, value) {
-        // Update local cache
-        this.parameters.set(address, {
-            ...this.parameters.get(address),
-            value
-        });
+        if (!this.parameters.has(address)) {
+            console.log(`[Client] New parameter discovered: ${address}`);
+        }
+        this.parameters.set(address, { value, type: typeof value });
+        
+        // Forward to VRChat
+        try {
+            this.vrchatSender.send(address, value);
+        } catch (err) {
+            console.warn(`[Client] Failed to send to VRChat: ${err.message}`);
+        }
 
         // Forward to relay if connected
         if (this.connected) {
             this.send(address, value);
         }
-    }
-
-    setupLocalOSC() {
-        this.vrchatReceiver.on('message', (msg, rinfo) => {
-            const [address, ...args] = msg;
-            console.log('[Client] Received from VRChat:', address, args);
-            
-            this.parameters.set(address, args[0]);
-            
-            if (this.connected) {
-                this.ws.send(JSON.stringify({
-                    type: 'osc_tunnel',
-                    address,
-                    args,
-                    source: 'vrchat'
-                }));
-            }
-        });
-
-        // Add OSCQuery discovery announcement
-        const announceMsg = Buffer.from(JSON.stringify({
-            name: "OSCRelay",
-            oscQueryPort: this.oscQueryPort
-        }));
-
-        const socket = dgram.createSocket('udp4');
-        socket.bind(() => {
-            socket.setBroadcast(true);
-            socket.send(announceMsg, 0, announceMsg.length, 9000, '127.0.0.1');
-        });
     }
 
     async connect() {
@@ -228,10 +236,6 @@ class OSCRelayClient {
 
     handleInit(message) {
         console.log('[Client] Received init message:', message);
-    }
-
-    handleParameterUpdate(message) {
-        console.log('[Client] Received parameter update:', message);
     }
 
     // Method to get stored parameter value
