@@ -19,11 +19,12 @@ class OSCRelayClient {
 
     async setupManagers() {
         await this.oscManager.createReceiver(this.config.osc.local.receivePort);
+        await this.oscManager.createSender(this.config.osc.local.sendPort);
         await this.oscQueryManager.start();
 
         this.oscManager.onMessage((msg) => {
             if (this.ProcessMessage(msg)) {
-                this.relayManager.broadcast({
+                this.relayManager.handleClientMessage({
                     type: 'osc_tunnel',
                     userId: this.userId,
                     ...msg

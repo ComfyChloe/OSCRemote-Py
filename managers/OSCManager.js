@@ -6,6 +6,11 @@ class OSCManager {
         this.receivers = new Map();
         this.senders = new Map();
         this.messageHandlers = new Set();
+
+        // Create default sender for VRChat
+        if (config?.osc?.local?.sendPort) {
+            this.createSender(config.osc.local.sendPort);
+        }
     }
 
     createReceiver(port) {
@@ -38,6 +43,8 @@ class OSCManager {
 
     handleMessage(msg, rinfo) {
         const [address, ...args] = msg;
+        console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC: ${address} | [${args.map(arg => JSON.stringify(arg)).join(', ')}]`);
+        
         this.messageHandlers.forEach(handler => 
             handler({ address, args, source: rinfo.address }));
     }
@@ -47,8 +54,12 @@ class OSCManager {
     }
 
     send(port, address, ...args) {
-        const sender = this.senders.get(port);
+        let sender = this.senders.get(port);
+        if (!sender) {
+            sender = this.createSender(port);
+        }
         if (sender) {
+            console.log(`[Client] | Sending OSC to port ${port}: ${address} | [${args.map(arg => JSON.stringify(arg)).join(', ')}]`);
             sender.send(address, ...args);
         }
     }

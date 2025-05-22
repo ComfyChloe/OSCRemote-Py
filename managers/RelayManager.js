@@ -19,15 +19,51 @@ class RelayManager {
     handleConnection(ws, req) {
         const clientId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
         this.clients.set(clientId, ws);
+        console.log(`[Relay] New client connected: ${clientId}`);
 
-        ws.on('message', (data) => this.handleMessage(clientId, data));
+        ws.on('message', (data) => {
+            try {
+                const message = JSON.parse(data.toString());
+                if (message.type === 'identify') {
+                    console.log(`[Relay] Client ${clientId} identified as: ${message.userId}`);
+                }
+                this.handleMessage(clientId, data);
+            } catch (err) {
+                console.error(`[Relay] Message parse error from ${clientId}:`, err);
+            }
+        });
+
         ws.on('close', () => this.handleDisconnect(clientId));
+    }
+
+    handleMessage(clientId, data) {
+        try {
+            const message = JSON.parse(data.toString());
+            this.messageHandlers.forEach(handler => handler(clientId, message));
+        } catch (err) {
+            console.error(`[Relay] Message parse error from ${clientId}:`, err);
+        }
+    }
+
+    handleDisconnect(clientId) {
+        this.clients.delete(clientId);
+        console.log(`[Relay] Client disconnected: ${clientId}`);
+    }
+
+    handleClientMessage(message) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(message));
+        }
     }
 
     broadcast(message, excludeId = null) {
         this.clients.forEach((ws, clientId) => {
             if (clientId !== excludeId && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(message));
+                try {
+                    ws.send(JSON.stringify(message));
+                } catch (err) {
+                    console.error(`[Relay] Broadcast error to ${clientId}:`, err);
+                }
             }
         });
     }
