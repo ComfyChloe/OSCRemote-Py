@@ -1,18 +1,16 @@
 relay:
-  host: "57.128.188.155"
+  host: 57.128.188.155
   port: 4953
   maxRetries: 5
   user:
     name: ""
-    id: ""
-
+    id: 7yrqturr
 osc:
   local:
     sendPort: 9000
     receivePort: 9001
     queryPort: 9012
-    ip: "127.0.0.1"
-
+    ip: 127.0.0.1
 filters:
   blacklist:
     - /avatar/parameters/VelocityX
