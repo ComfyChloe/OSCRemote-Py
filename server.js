@@ -1,5 +1,6 @@
 const WebSocket = require('ws');
 const logger = require('./logger');
+const readline = require('readline'); // Add this at the top
 
 const WS_PORT = 4953;
 
@@ -9,7 +10,9 @@ class OSCRelay {
         this.clientIds = new Map();
         this.RelayServer();
         this.Shutdown();
+        this.setupKeyboardControls();
     }
+
     RelayServer() {
         this.wsServer = new WebSocket.Server({ port: WS_PORT });
 
@@ -65,6 +68,41 @@ class OSCRelay {
             });
         });
     }
+
+    setupKeyboardControls() {
+        readline.emitKeypressEvents(process.stdin);
+        process.stdin.setRawMode(true);
+
+        process.stdin.on('keypress', (str, key) => {
+            if (key.ctrl && key.name === 'c') {
+                process.exit();
+            } else if (key.name === 'u') {
+                this.sendTestToAllUsers();
+            }
+        });
+
+        console.log('[Server] Keyboard controls enabled:');
+        console.log('  Press "u" to send test message to all clients');
+        console.log('  Press Ctrl+C to exit');
+    }
+
+    sendTestToAllUsers() {
+        const testMessage = {
+            type: 'osc_tunnel',
+            address: '/test/server',
+            args: [Math.random()],
+            userId: 'SERVER',
+            source: 'server'
+        };
+
+        this.connectedClients.forEach((ws, clientId) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(testMessage));
+                console.log(`[Server] Sent test to client: ${this.clientIds.get(clientId) || clientId}`);
+            }
+        });
+    }
+
     broadcastToClients(message, senderId, timestamp) {
         this.connectedClients.forEach((ws, clientId) => {
             if (clientId !== senderId && ws.readyState === WebSocket.OPEN) {
