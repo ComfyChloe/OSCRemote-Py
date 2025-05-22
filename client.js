@@ -23,13 +23,21 @@ class OSCRelayClient {
         await this.oscQueryManager.start();
 
         this.oscManager.onMessage((msg) => {
-            if (this.ProcessMessage(msg)) {
-                this.relayManager.handleClientMessage({
-                    type: 'osc_tunnel',
-                    userId: this.userId,
-                    ...msg
-                });
+            if (this.ProcessMessage(msg, 'console') === false) {
+                return false; // Stop processing if blacklisted for console
             }
+            
+            if (this.ProcessMessage(msg, 'transmission') === false) {
+                console.log(`[Client] Blocked transmission of blacklisted message: ${msg.address}`);
+                return false;
+            }
+            
+            this.relayManager.handleClientMessage({
+                type: 'osc_tunnel',
+                userId: this.userId,
+                ...msg
+            });
+            return true;
         });
 
         this.relayManager.messageHandlers.add((message) => {
@@ -110,11 +118,30 @@ class OSCRelayClient {
         }
     }
 
-    ProcessMessage(message) {
-        if (this.config.filters.blacklist.length > 0) {
-            for (const pattern of this.config.filters.blacklist) {
+    ProcessMessage(message, type = 'transmission') {
+        if (!message || !message.address) return false;
+
+        // Check both console and transmission blacklists if we're checking console
+        if (type === 'console') {
+            const consoleBlacklist = this.config.filters.blacklist.console || [];
+            const transmissionBlacklist = this.config.filters.blacklist.transmission || [];
+            
+            // If message is in either blacklist, don't log it
+            for (const pattern of [...consoleBlacklist, ...transmissionBlacklist]) {
                 try {
-                    if (message.address.match(new RegExp(pattern))) {
+                    if (new RegExp(pattern.replace('*', '.*')).test(message.address)) {
+                        return false;
+                    }
+                } catch (err) {
+                    console.warn(`[Client] Invalid blacklist pattern: ${pattern}`);
+                }
+            }
+        } else {
+            // Just check transmission blacklist for normal processing
+            const blacklist = this.config.filters.blacklist[type] || [];
+            for (const pattern of blacklist) {
+                try {
+                    if (new RegExp(pattern.replace('*', '.*')).test(message.address)) {
                         return false;
                     }
                 } catch (err) {
@@ -123,10 +150,7 @@ class OSCRelayClient {
             }
         }
         
-        // Custom filters
-        if (!this.filters || this.filters.size === 0) return true;
-        return Array.from(this.filters).some(pattern => 
-            message.address.match(new RegExp(pattern)));
+        return true;
     }
 
     setupKeyboardControls() {
@@ -156,12 +180,19 @@ class OSCRelayClient {
 
 if (require.main === module) {
     const client = new OSCRelayClient();
+    console.log('[Client] Starting connection process...');
     client.relayManager.connect().then(() => {
-        console.log('[Client] Successfully connected to relay server');
+        console.log('[Client] Connection established, subscribing to OSC');
         client.relayManager.subscribeToOSC(); 
     }).catch(err => {
-        console.error('[Client] Failed to connect:', err);
+        console.error('[Client] Fatal connection error:', err.message);
+        console.error('[Client] Shutting down...');
         process.exit(1);
+    });
+
+    process.on('unhandledRejection', (reason, promise) => {
+        console.error('[Client] Unhandled Rejection at:', promise);
+        console.error('[Client] Reason:', reason);
     });
 }
 

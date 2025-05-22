@@ -21,17 +21,40 @@ class OSCRelay {
         this.relayManager.startServer();
 
         this.oscManager.onMessage((msg) => {
-            this.relayManager.broadcast({
-                type: 'osc_tunnel',
-                ...msg
-            });
+            if (this.ProcessMessage(msg)) {
+                this.relayManager.broadcast({
+                    type: 'osc_tunnel',
+                    ...msg
+                });
+            }
         });
 
         this.relayManager.messageHandlers.add((clientId, message) => {
-            if (message.type === 'osc_tunnel') {
+            if (message.type === 'osc_tunnel' && this.ProcessMessage(message)) {
                 this.oscManager.send(this.config.client.port, message.address, ...message.args);
             }
         });
+    }
+
+    ProcessMessage(message) {
+        // Use same blacklist logic as client for consistency
+        if (!message || !message.address) return false;
+
+        const blacklist = this.config.filters?.blacklist?.transmission || [];
+        if (blacklist.length > 0) {
+            for (const pattern of blacklist) {
+                try {
+                    if (new RegExp(pattern.replace('*', '.*')).test(message.address)) {
+                        console.log(`[Server] Blocked blacklisted message: ${message.address}`);
+                        return false;
+                    }
+                } catch (err) {
+                    console.warn(`[Server] Invalid blacklist pattern: ${pattern}`);
+                }
+            }
+        }
+        
+        return true;
     }
 
     setupKeyboardControls() {
