@@ -2,6 +2,9 @@ relay:
   host: "57.128.188.155"
   port: 4953
   maxRetries: 5
+  user:
+    name: ""
+    id: ""
 
 osc:
   local:

@@ -5,10 +5,12 @@ const http = require('http');
 const readline = require('readline');
 const yaml = require('yaml');
 const fs = require('fs');
+const crypto = require('crypto');
 
 class OSCRelayClient {
     constructor(serverUrl) {
         this.loadConfig();
+        this.ensureUserId();
         this.serverUrl = serverUrl || `ws://${this.config.relay.host}:${this.config.relay.port}`;
         this.ws = null;
         this.messageHandlers = new Set();
@@ -34,6 +36,29 @@ class OSCRelayClient {
         }
 
         this.loadBlacklist();
+    }
+
+    ensureUserId() {
+        if (!this.config.relay.user) {
+            this.config.relay.user = { name: "", id: "" };
+        }
+        
+        if (!this.config.relay.user.id) {
+            // Generate random 8-byte hex string
+            this.config.relay.user.id = crypto.randomBytes(8).toString('hex');
+            this.saveConfig();
+        }
+
+        this.userId = this.config.relay.user.name || `default-${this.config.relay.user.id}`;
+        console.log(`[Client] User ID: ${this.userId}`);
+    }
+
+    saveConfig() {
+        try {
+            fs.writeFileSync('./config.yml', yaml.stringify(this.config));
+        } catch (err) {
+            console.error('[Client] Failed to save config:', err);
+        }
     }
 
     loadConfig() {
@@ -100,7 +125,8 @@ class OSCRelayClient {
                             type: 'osc_tunnel',
                             address,
                             args,
-                            source: rinfo.address
+                            source: rinfo.address,
+                            userId: this.userId
                         }));
                     }
                 }
@@ -170,7 +196,6 @@ class OSCRelayClient {
             this.setupParameterListeners();
         } catch (err) {
             console.warn('[Client] VRChat parameter discovery failed:', err.message);
-            // Retry after delay
             setTimeout(() => this.discoverVRChatParameters(), 5000);
         }
     }
@@ -211,6 +236,10 @@ class OSCRelayClient {
 
                 this.ws.on('open', () => {
                     console.log('[Client] Connected to OSC relay');
+                    this.ws.send(JSON.stringify({
+                        type: 'identify',
+                        userId: this.userId
+                    }));
                     this.connected = true;
                     this.connectionAttempts = 0;
                     resolve();
@@ -219,7 +248,7 @@ class OSCRelayClient {
                 this.ws.on('message', (data) => {
                     const message = JSON.parse(data);
                     if (message.type === 'osc_tunnel') {
-                        console.log(`[Client] Relay-${message.source} IP: ${message.source} Received OSC:`, message.address, message.args);
+                        console.log(`[Client] User ${message.userId} IP: ${message.source} Received OSC:`, message.address, message.args);
                         this.vrchatSender.send(message.address, ...message.args);
                         this.parameters.set(message.address, message.args[0]);
                     }
@@ -384,7 +413,7 @@ class OSCRelayClient {
 }
 
 if (require.main === module) {
-    const client = new OSCRelayClient(); // Will use config.yml values
+    const client = new OSCRelayClient();
     client.connect().then(() => {
         console.log('[Client] Successfully connected to relay server');
         client.subscribeToOSC(); 
