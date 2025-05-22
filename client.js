@@ -258,22 +258,32 @@ class OSCRelayClient {
             if (key.ctrl && key.name === 'c') {
                 process.exit();
             } else if (key.name === 't') {
-                // Test message - send a value between 0 and 1
                 const testValue = Math.random();
-                console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
+                console.log('\n=================================');
+                console.log('>> TEST MESSAGE SENT');
+                console.log(`>> Address: /avatar/change`);
+                console.log(`>> Value: ${testValue}`);
+                console.log('=================================\n');
                 this.send('/avatar/change', testValue);
             } else if (key.name === 'r') {
-                // Test message with random integer
                 const testValue = Math.floor(Math.random() * 100);
-                console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
+                console.log('\n=================================');
+                console.log('>> TEST MESSAGE SENT');
+                console.log(`>> Address: /avatar/change`);
+                console.log(`>> Value: ${testValue}`);
+                console.log('=================================\n');
                 this.send('/avatar/change', testValue);
             }
         });
 
-        console.log('[Client] Keyboard controls enabled:');
-        console.log('  Press "t" to send a random float test message');
-        console.log('  Press "r" to send a random integer test message');
-        console.log('  Press Ctrl+C to exit');
+        console.clear();
+        console.log('\n===============================');
+        console.log('        KEYBOARD CONTROLS       ');
+        console.log('===============================');
+        console.log('  [T] Send random float (0-1)');
+        console.log('  [R] Send random integer (0-100)');
+        console.log('  [Ctrl+C] Exit application');
+        console.log('===============================\n');
     }
 }
 
