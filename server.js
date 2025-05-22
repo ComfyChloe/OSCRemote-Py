@@ -6,7 +6,7 @@ const WS_PORT = 4953;
 class OSCRelay {
     constructor() {
         this.connectedClients = new Map();
-        this.clientIds = new Map(); // Track user IDs
+        this.clientIds = new Map();
         this.RelayServer();
         this.Shutdown();
     }
@@ -16,7 +16,7 @@ class OSCRelay {
         this.wsServer.on('connection', (ws, req) => {
             const clientId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
             this.connectedClients.set(clientId, ws);
-            console.log(`[Server] Client connected: ${clientId}`);
+            console.log(`[Server] Client connected: ${clientId}`); 
 
             ws.on('message', (data) => {
                 try {

@@ -18,9 +18,7 @@ class OSCRelayClient {
         this.connectionAttempts = 0;
         this.parameters = new Map();
 
-        this.localOscPort = this.config.osc.local.receivePort;
-        this.vrchatSendPort = this.config.osc.local.sendPort;
-        this.vrchatReceivePort = this.config.osc.local.receivePort;
+        this.findAvailablePorts();
         this.maxRetries = this.config.relay.maxRetries;
 
         this.vrchatSender = new osc.Client('127.0.0.1', this.vrchatSendPort);
@@ -109,51 +107,102 @@ class OSCRelayClient {
         console.log('[Client] Loaded blacklist patterns:', this.blacklist.size);
     }
 
-    OSCReceiver() {
-        try {
-            this.vrchatReceiver = new osc.Server(this.localOscPort, '127.0.0.1');
-            console.log(`[Client] Listening for OSC on port ${this.localOscPort}`);
-            
-            this.vrchatReceiver.on('message', (msg, rinfo) => {
-                const [address, ...args] = msg;
-                if (this.ProcessMessage({ address })) {
-                    console.log(`[Client] Local IP: ${rinfo.address} Received OSC:`, address, args);
-                    
-                    if (this.connected) {
-                        this.ws.send(JSON.stringify({
-                            type: 'osc_tunnel',
-                            address,
-                            args,
-                            source: rinfo.address,
-                            userId: this.userId
-                        }));
-                    }
-                }
-            });
-        } catch (err) {
-            console.error('[Client] Failed to setup OSC receiver:', err);
-            this.localOscPort++;
-            if (this.localOscPort < 9020) {
-                this.OSCReceiver();
-            }
+    findAvailablePorts() {
+        this.localOscPort = this.config.osc.local.receivePort;
+        this.vrchatSendPort = this.config.osc.local.sendPort;
+        this.vrchatReceivePort = this.config.osc.local.receivePort;
+        this.queryPort = this.config.osc.local.queryPort;
+
+        if (this.localOscPort === 0) { // 0 lets it auto search
+            this.localOscPort = 9001; 
+        }
+        if (this.queryPort === 0) {
+            this.queryPort = 9012; 
         }
     }
 
-    startOSCQuery() {
-        const queryPort = this.config.osc.local.queryPort;
-        this.oscQueryServer = http.createServer(this.handleOSCQuery.bind(this));
-        
-        this.oscQueryServer.on('error', (err) => {
-            console.warn('[Client] OSCQuery server error:', err.message);
-        });
+    OSCReceiver() {
+        const createServer = (port) => {
+            try {
+                const server = new osc.Server(port, '127.0.0.1');
+                
+                server.on('listening', () => {
+                    console.log(`[Client] Listening for OSC on port ${port}`);
+                    this.vrchatReceiver = server;
+                    this.config.osc.local.receivePort = port;
+                    this.saveConfig();
+                });
 
-        try {
-            this.oscQueryServer.listen(queryPort, '127.0.0.1', () => {
-                console.log(`[Client] OSCQuery server listening on port ${queryPort}`);
-            });
-        } catch (err) {
-            console.warn('[Client] Could not start OSCQuery server:', err.message);
-        }
+                server.on('error', (err) => {
+                    if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
+                        console.log(`[Client] Port ${port} not available, trying ${port + 1}...`);
+                        server.close();
+                        createServer(port + 1);
+                    } else {
+                        console.error('[Client] OSC server error:', err);
+                    }
+                });
+
+                server.on('message', (msg, rinfo) => {
+                    const [address, ...args] = msg;
+                    if (this.ProcessMessage({ address })) {
+                        console.log(`[Client] Local IP: ${rinfo.address} Received OSC:`, address, args);
+                        
+                        if (this.connected) {
+                            this.ws.send(JSON.stringify({
+                                type: 'osc_tunnel',
+                                address,
+                                args,
+                                source: rinfo.address,
+                                userId: this.userId
+                            }));
+                        }
+                    }
+                });
+
+            } catch (err) {
+                if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
+                    console.log(`[Client] Port ${port} failed, trying ${port + 1}...`);
+                    createServer(port + 1);
+                } else {
+                    console.error('[Client] Failed to create OSC server:', err);
+                }
+            }
+        };
+
+        // Start with configured port or default
+        createServer(this.localOscPort || 9001);
+    }
+
+    startOSCQuery() {
+        const tryPort = (port) => {
+            try {
+                this.oscQueryServer = http.createServer(this.handleOSCQuery.bind(this));
+                
+                this.oscQueryServer.on('error', (err) => {
+                    if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
+                        console.log(`[Client] Query port ${port} in use, trying next port...`);
+                        tryPort(port + 1);
+                    } else {
+                        console.warn('[Client] OSCQuery server error:', err.message);
+                    }
+                });
+
+                this.oscQueryServer.listen(port, '127.0.0.1', () => {
+                    console.log(`[Client] OSCQuery server listening on port ${port}`);
+                    this.config.osc.local.queryPort = port;
+                    this.saveConfig();
+                });
+            } catch (err) {
+                if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
+                    tryPort(port + 1);
+                } else {
+                    console.warn('[Client] Could not start OSCQuery server:', err.message);
+                }
+            }
+        };
+
+        tryPort(this.queryPort);
     }
 
     handleOSCQuery(req, res) {
