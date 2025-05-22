@@ -1,14 +1,13 @@
-const WebSocket = require('ws');
 const logger = require('./logger');
 const readline = require('readline');
-const RelayManager = require('./managers/RelayManager');
+const WebSocketManager = require('./managers/WebSocketManager');
 const OSCManager = require('./managers/OSCManager');
 const OSCQueryManager = require('./managers/OSCQueryManager');
 
 class OSCRelay {
     constructor(config = {}) {
         this.config = config;
-        this.relayManager = new RelayManager(config);
+        this.wsManager = new WebSocketManager(config);
         this.oscManager = new OSCManager(config);
         this.oscQueryManager = new OSCQueryManager(config);
         
@@ -18,26 +17,29 @@ class OSCRelay {
 
     async setupManagers() {
         await this.oscManager.createReceiver(this.config.client.port);
-        this.relayManager.startServer();
+        this.wsManager.startServer();
 
         this.oscManager.onMessage((msg) => {
             if (this.ProcessMessage(msg)) {
-                this.relayManager.broadcast({
+                const relayMessage = {
                     type: 'osc_tunnel',
-                    ...msg
-                });
+                    ...msg,
+                    userId: 'SERVER'
+                };
+                this.wsManager.broadcast(relayMessage);
             }
         });
 
-        this.relayManager.messageHandlers.add((clientId, message) => {
+        this.wsManager.onMessage((clientId, message) => {
             if (message.type === 'osc_tunnel' && this.ProcessMessage(message)) {
+                const clientInfo = this.wsManager.clientInfo.get(clientId);
+                console.log(`[Server] Relaying OSC from ${clientInfo?.userId || clientId}: ${message.address}`);
                 this.oscManager.send(this.config.client.port, message.address, ...message.args);
             }
         });
     }
 
     ProcessMessage(message) {
-        // Use same blacklist logic as client for consistency
         if (!message || !message.address) return false;
 
         const blacklist = this.config.filters?.blacklist?.transmission || [];
@@ -45,15 +47,13 @@ class OSCRelay {
             for (const pattern of blacklist) {
                 try {
                     if (new RegExp(pattern.replace('*', '.*')).test(message.address)) {
-                        console.log(`[Server] Blocked blacklisted message: ${message.address}`);
-                        return false;
+                        return false; // Silently filter blacklisted messages
                     }
                 } catch (err) {
                     console.warn(`[Server] Invalid blacklist pattern: ${pattern}`);
                 }
             }
         }
-        
         return true;
     }
 
@@ -83,12 +83,11 @@ class OSCRelay {
             source: 'server'
         };
 
-        this.relayManager.broadcast(testMessage);
-        console.log('[Server] Sent test message to all clients');
+        console.log(`[Server] Broadcasting test message: ${testMessage.address} | [${testMessage.args.join(', ')}]`);
+        this.wsManager.broadcast(testMessage);
     }
 }
 
-// Only run if this is the main module
 if (require.main === module) {
     const config = {
         server: {
