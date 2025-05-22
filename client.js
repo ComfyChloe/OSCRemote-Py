@@ -52,7 +52,7 @@ class OSCRelayClient {
     }
 
     startOSCQuery() {
-        const queryPort = 9012; // Different port for OSCQuery
+        const queryPort = 9012;
         this.oscQueryServer = http.createServer(this.handleOSCQuery.bind(this));
         
         this.oscQueryServer.on('error', (err) => {
