@@ -5,9 +5,10 @@ const readline = require('readline'); // Add this at the top
 const WS_PORT = 4953;
 
 class OSCRelay {
-    constructor() {
+    constructor(options = { allowLocalMessages: true }) {
         this.connectedClients = new Map();
         this.clientIds = new Map();
+        this.options = options;
         this.RelayServer();
         this.Shutdown();
         this.setupKeyboardControls();
@@ -105,7 +106,9 @@ class OSCRelay {
 
     broadcastToClients(message, senderId, timestamp) {
         this.connectedClients.forEach((ws, clientId) => {
-            if (clientId !== senderId && ws.readyState === WebSocket.OPEN) {
+            const isLocal = clientId.includes('127.0.0.1') || clientId.includes('::1');
+            if ((clientId !== senderId || (isLocal && this.options.allowLocalMessages)) && 
+                ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(message));
                 if (message.type === 'osc_tunnel') {
                     console.log(`[Server ${timestamp}] Broadcast | From: ${message.userId} | To: ${clientId} | Address: ${message.address} | Args: ${JSON.stringify(message.args)}`);
