@@ -1,6 +1,7 @@
 const WebSocket = require('ws');
 const osc = require('node-osc');
 const dgram = require('dgram');
+const http = require('http');
 
 class OSCRelayClient {
     constructor(serverUrl) {
@@ -19,6 +20,89 @@ class OSCRelayClient {
         
         // Setup local OSC handling
         this.setupLocalOSC();
+
+        // OSCQuery setup
+        this.oscQueryServer = http.createServer(this.handleOSCQuery.bind(this));
+        this.oscQueryPort = 9001; // VRChat looks for OSCQuery on 9001
+        this.startOSCQuery();
+    }
+
+    startOSCQuery() {
+        this.oscQueryServer.listen(this.oscQueryPort, '127.0.0.1', () => {
+            console.log(`[Client] OSCQuery server listening on port ${this.oscQueryPort}`);
+        });
+
+        // Try to discover VRChat's parameters
+        this.discoverVRChatParameters();
+    }
+
+    handleOSCQuery(req, res) {
+        const oscQueryResponse = {
+            DESCRIPTION: "OSC Relay Client",
+            HOST_INFO: {
+                NAME: "OSCRelay",
+                OSC_PORT: 9000,
+                OSC_TRANSPORT: "UDP",
+                OSC_IP: "127.0.0.1"
+            },
+            EXTENSIONS: {
+                ACCESS: true,
+                VALUE: true,
+                TYPE: true,
+                RANGE: true
+            }
+        };
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(oscQueryResponse));
+    }
+
+    async discoverVRChatParameters() {
+        try {
+            console.log('[Client] Discovering VRChat parameters...');
+            const response = await fetch('http://127.0.0.1:9000/avatar/parameters');
+            const parameters = await response.json();
+            
+            for (const [address, data] of Object.entries(parameters)) {
+                this.parameters.set(address, {
+                    value: data.value,
+                    type: data.type,
+                    access: data.access
+                });
+            }
+
+            console.log(`[Client] Discovered ${this.parameters.size} parameters`);
+            this.setupParameterListeners();
+        } catch (err) {
+            console.warn('[Client] VRChat parameter discovery failed:', err.message);
+            // Retry after delay
+            setTimeout(() => this.discoverVRChatParameters(), 5000);
+        }
+    }
+
+    setupParameterListeners() {
+        // Setup listeners for each discovered parameter
+        this.parameters.forEach((data, address) => {
+            const accessType = data.access || 'readwrite';
+            if (accessType.includes('read')) {
+                this.vrchatReceiver.on(address, (value) => {
+                    this.handleParameterUpdate(address, value);
+                });
+            }
+        });
+    }
+
+    handleParameterUpdate(address, value) {
+        // Update local cache
+        this.parameters.set(address, {
+            ...this.parameters.get(address),
+            value
+        });
+
+        // Forward to relay if connected
+        if (this.connected) {
+            this.send(address, value);
+        }
     }
 
     setupLocalOSC() {
@@ -36,6 +120,18 @@ class OSCRelayClient {
                     source: 'vrchat'
                 }));
             }
+        });
+
+        // Add OSCQuery discovery announcement
+        const announceMsg = Buffer.from(JSON.stringify({
+            name: "OSCRelay",
+            oscQueryPort: this.oscQueryPort
+        }));
+
+        const socket = dgram.createSocket('udp4');
+        socket.bind(() => {
+            socket.setBroadcast(true);
+            socket.send(announceMsg, 0, announceMsg.length, 9000, '127.0.0.1');
         });
     }
 
