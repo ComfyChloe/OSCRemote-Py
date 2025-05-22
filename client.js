@@ -418,6 +418,7 @@ class OSCRelayClient {
         console.log('[Client] Keyboard controls enabled:');
         console.log('  Press "t" to send a random float test message');
         console.log('  Press "r" to send a random integer test message');
+        console.log('  Press "u" (on server) to receive test message');
         console.log('  Press Ctrl+C to exit');
     }
 
