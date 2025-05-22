@@ -2,6 +2,7 @@ const WebSocket = require('ws');
 const osc = require('node-osc');
 const dgram = require('dgram');
 const http = require('http');
+const readline = require('readline');
 
 class OSCRelayClient {
     constructor(serverUrl) {
@@ -14,14 +15,20 @@ class OSCRelayClient {
         this.maxRetries = 5;
         this.parameters = new Map();
 
-        this.localOscPort = 9011;
-        this.vrchatSendPort = 9000;
-        this.vrchatReceivePort = 9001;
+        this.localOscPort = 9000;
+        this.vrchatSendPort = 9001;
+        this.vrchatReceivePort = 9000;
 
         this.vrchatSender = new osc.Client('127.0.0.1', this.vrchatSendPort);
         this.setupOSCReceiver();
 
         this.startOSCQuery();
+        this.setupKeyboardInput();
+
+        this.isTestMode = process.argv.includes('--test');
+        if (this.isTestMode) {
+            this.runTestMode();
+        }
     }
 
     setupOSCReceiver() {
@@ -38,14 +45,14 @@ class OSCRelayClient {
                         type: 'osc_tunnel',
                         address,
                         args,
-                        source: 'local'
+                        source: '127.0.0.1'
                     }));
                 }
             });
         } catch (err) {
             console.error('[Client] Failed to setup OSC receiver:', err);
             this.localOscPort++;
-            if (this.localOscPort < 9020) { // Try up to port 9020
+            if (this.localOscPort < 9020) {
                 this.setupOSCReceiver();
             }
         }
@@ -247,6 +254,89 @@ class OSCRelayClient {
     getAllParameters() {
         return Object.fromEntries(this.parameters);
     }
+
+    setupKeyboardInput() {
+        readline.emitKeypressEvents(process.stdin);
+        process.stdin.setRawMode(true);
+
+        process.stdin.on('keypress', (str, key) => {
+            if (key.ctrl && key.name === 'c') {
+                process.exit();
+            } else if (key.name === 't') {
+                const testValue = Math.random();
+                console.log('\n=================================');
+                console.log('>> TEST MESSAGE SENT');
+                console.log(`>> Address: /avatar/change`);
+                console.log(`>> Value: ${testValue}`);
+                console.log('=================================\n');
+                this.send('/avatar/change', testValue);
+            } else if (key.name === 'r') {
+                const testValue = Math.floor(Math.random() * 100);
+                console.log('\n=================================');
+                console.log('>> TEST MESSAGE SENT');
+                console.log(`>> Address: /avatar/change`);
+                console.log(`>> Value: ${testValue}`);
+                console.log('=================================\n');
+                this.send('/avatar/change', testValue);
+            }
+        });
+
+        console.clear();
+        console.log('\n===============================');
+        console.log('        KEYBOARD CONTROLS       ');
+        console.log('===============================');
+        console.log('  [T] Send random float (0-1)');
+        console.log('  [R] Send random integer (0-100)');
+        console.log('  [Ctrl+C] Exit application');
+        console.log('===============================\n');
+    }
+
+    async runTestMode() {
+        try {
+            console.log('[Test Mode] Setting up OSC and WebSocket...');
+            await this.connect();
+
+            console.log('[Test Mode] Testing parameter discovery...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            const params = this.getAllParameters();
+            console.log('[Test Mode] Available parameters:', Object.keys(params).length);
+
+            this.onMessage(message => {
+                console.log('[Test Mode] Received OSC Message:', {
+                    timestamp: new Date().toISOString(),
+                    source: message.source || 'unknown',
+                    address: message.address,
+                    args: message.args
+                });
+            });
+
+            if (this.connected) {
+                const testCases = [
+                    { path: '/avatar/parameters/Voice', value: 0.75 },
+                    { path: '/avatar/parameters/VRCEmote', value: 1 },
+                ];
+
+                console.log('[Test Mode] Running test cases...');
+                for (const test of testCases) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    this.send(test.path, test.value);
+                    console.log(`[Test Mode] Sent: ${test.path} = ${test.value}`);
+                }
+            }
+        } catch (error) {
+            console.error('[Test Mode] Error:', error.message);
+            process.exit(1);
+        }
+    }
+}
+
+// Add direct execution support
+if (require.main === module) {
+    const SERVER_HOST = '57.128.188.155';
+    const SERVER_PORT = 4953;
+    
+    const client = new OSCRelayClient(`ws://${SERVER_HOST}:${SERVER_PORT}`);
 }
 
 module.exports = OSCRelayClient;

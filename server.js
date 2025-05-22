@@ -7,6 +7,7 @@ class OSCRelay {
     constructor() {
         this.connectedClients = new Map();
         this.setupRelayServer();
+        this.setupShutdown();
     }
 
     setupRelayServer() {
@@ -31,6 +32,24 @@ class OSCRelay {
             ws.on('close', () => {
                 this.connectedClients.delete(clientId);
                 logger.log(`Client disconnected: ${clientId}`);
+            });
+        });
+    }
+
+    setupShutdown() {
+        process.on('SIGINT', () => {
+            logger.log('Shutting down server...', 'SHUTDOWN');
+
+            this.connectedClients.forEach((ws, clientId) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                    logger.log(`Closed connection to ${clientId}`, 'SHUTDOWN');
+                }
+            });
+
+            this.wsServer.close(() => {
+                logger.log('Server shutdown complete', 'SHUTDOWN');
+                process.exit(0);
             });
         });
     }
