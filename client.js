@@ -3,21 +3,24 @@ const osc = require('node-osc');
 const dgram = require('dgram');
 const http = require('http');
 const readline = require('readline');
+const yaml = require('yaml');
+const fs = require('fs');
 
 class OSCRelayClient {
     constructor(serverUrl) {
-        this.serverUrl = serverUrl;
+        this.loadConfig();
+        this.serverUrl = serverUrl || `ws://${this.config.relay.host}:${this.config.relay.port}`;
         this.ws = null;
         this.messageHandlers = new Set();
         this.filters = new Set();
         this.connected = false;
         this.connectionAttempts = 0;
-        this.maxRetries = 5;
         this.parameters = new Map();
 
-        this.localOscPort = 9000;
-        this.vrchatSendPort = 9001;
-        this.vrchatReceivePort = 9000;
+        this.localOscPort = this.config.osc.local.receivePort;
+        this.vrchatSendPort = this.config.osc.local.sendPort;
+        this.vrchatReceivePort = this.config.osc.local.receivePort;
+        this.maxRetries = this.config.relay.maxRetries;
 
         this.vrchatSender = new osc.Client('127.0.0.1', this.vrchatSendPort);
         this.setupOSCReceiver();
@@ -29,6 +32,57 @@ class OSCRelayClient {
         if (this.isTestMode) {
             this.runTestMode();
         }
+
+        this.loadBlacklist();
+    }
+
+    loadConfig() {
+        try {
+            const file = fs.readFileSync('./config.yml', 'utf8');
+            this.config = yaml.parse(file);
+            console.log('[Client] Loaded configuration');
+            
+            this.config.relay = this.config.relay || {};
+            this.config.relay.host = this.config.relay.host || '57.128.188.155';
+            this.config.relay.port = this.config.relay.port || 4953;
+            this.config.relay.maxRetries = this.config.relay.maxRetries || 5;
+
+            this.config.osc = this.config.osc || {};
+            this.config.osc.local = this.config.osc.local || {};
+            this.config.osc.local.sendPort = this.config.osc.local.sendPort || 9000;
+            this.config.osc.local.receivePort = this.config.osc.local.receivePort || 9001;
+            this.config.osc.local.queryPort = this.config.osc.local.queryPort || 9012;
+            this.config.osc.local.ip = this.config.osc.local.ip || '127.0.0.1';
+
+            this.config.filters = this.config.filters || {};
+            this.config.filters.blacklist = this.config.filters.blacklist || [];
+
+        } catch (err) {
+            console.warn('[Client] No config.yml found, using defaults');
+            this.config = {
+                relay: {
+                    host: '57.128.188.155',
+                    port: 4953,
+                    maxRetries: 5
+                },
+                osc: {
+                    local: {
+                        sendPort: 9000,
+                        receivePort: 9001,
+                        queryPort: 9012,
+                        ip: '127.0.0.1'
+                    }
+                },
+                filters: {
+                    blacklist: []
+                }
+            };
+        }
+    }
+
+    loadBlacklist() {
+        this.blacklist = new Set(this.config.filters.blacklist);
+        console.log('[Client] Loaded blacklist patterns:', this.blacklist.size);
     }
 
     setupOSCReceiver() {
@@ -38,14 +92,14 @@ class OSCRelayClient {
             
             this.vrchatReceiver.on('message', (msg, rinfo) => {
                 const [address, ...args] = msg;
-                console.log('[Client] Received OSC:', address, args);
+                console.log(`[Client] Local IP: ${rinfo.address} Received OSC:`, address, args);
                 
                 if (this.connected) {
                     this.ws.send(JSON.stringify({
                         type: 'osc_tunnel',
                         address,
                         args,
-                        source: '127.0.0.1'
+                        source: rinfo.address
                     }));
                 }
             });
@@ -59,7 +113,7 @@ class OSCRelayClient {
     }
 
     startOSCQuery() {
-        const queryPort = 9012;
+        const queryPort = this.config.osc.local.queryPort;
         this.oscQueryServer = http.createServer(this.handleOSCQuery.bind(this));
         
         this.oscQueryServer.on('error', (err) => {
@@ -120,7 +174,6 @@ class OSCRelayClient {
     }
 
     setupParameterListeners() {
-        // Setup listeners for each discovered parameter
         this.parameters.forEach((data, address) => {
             const accessType = data.access || 'readwrite';
             if (accessType.includes('read')) {
@@ -137,14 +190,12 @@ class OSCRelayClient {
         }
         this.parameters.set(address, { value, type: typeof value });
         
-        // Forward to VRChat
         try {
             this.vrchatSender.send(address, value);
         } catch (err) {
             console.warn(`[Client] Failed to send to VRChat: ${err.message}`);
         }
 
-        // Forward to relay if connected
         if (this.connected) {
             this.send(address, value);
         }
@@ -154,6 +205,7 @@ class OSCRelayClient {
         try {
             return new Promise((resolve, reject) => {
                 this.ws = new WebSocket(this.serverUrl);
+                this.relayId = null;
 
                 this.ws.on('open', () => {
                     console.log('[Client] Connected to OSC relay');
@@ -165,7 +217,7 @@ class OSCRelayClient {
                 this.ws.on('message', (data) => {
                     const message = JSON.parse(data);
                     if (message.type === 'osc_tunnel') {
-                        // Forward remote OSC messages to local VRChat
+                        console.log(`[Client] Relay-${message.source} IP: ${message.source} Received OSC:`, message.address, message.args);
                         this.vrchatSender.send(message.address, ...message.args);
                         this.parameters.set(message.address, message.args[0]);
                     }
@@ -236,6 +288,15 @@ class OSCRelayClient {
     }
 
     shouldProcessMessage(message) {
+        // Check blacklist from config
+        if (this.config.filters.blacklist.length > 0) {
+            for (const pattern of this.config.filters.blacklist) {
+                if (message.address.match(new RegExp(pattern))) {
+                    return false;
+                }
+            }
+        }
+        // Then check filters as before
         if (this.filters.size === 0) return true;
         return Array.from(this.filters).some(pattern => 
             message.address.match(new RegExp(pattern)));
@@ -264,31 +325,18 @@ class OSCRelayClient {
                 process.exit();
             } else if (key.name === 't') {
                 const testValue = Math.random();
-                console.log('\n=================================');
-                console.log('>> TEST MESSAGE SENT');
-                console.log(`>> Address: /avatar/change`);
-                console.log(`>> Value: ${testValue}`);
-                console.log('=================================\n');
+                console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
                 this.send('/avatar/change', testValue);
             } else if (key.name === 'r') {
                 const testValue = Math.floor(Math.random() * 100);
-                console.log('\n=================================');
-                console.log('>> TEST MESSAGE SENT');
-                console.log(`>> Address: /avatar/change`);
-                console.log(`>> Value: ${testValue}`);
-                console.log('=================================\n');
+                console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
                 this.send('/avatar/change', testValue);
             }
         });
-
-        console.clear();
-        console.log('\n===============================');
-        console.log('        KEYBOARD CONTROLS       ');
-        console.log('===============================');
-        console.log('  [T] Send random float (0-1)');
-        console.log('  [R] Send random integer (0-100)');
-        console.log('  [Ctrl+C] Exit application');
-        console.log('===============================\n');
+        console.log('[Client] Keyboard controls enabled:');
+        console.log('  Press "t" to send a random float test message');
+        console.log('  Press "r" to send a random integer test message');
+        console.log('  Press Ctrl+C to exit');
     }
 
     async runTestMode() {
@@ -331,12 +379,15 @@ class OSCRelayClient {
     }
 }
 
-// Add direct execution support
 if (require.main === module) {
-    const SERVER_HOST = '57.128.188.155';
-    const SERVER_PORT = 4953;
-    
-    const client = new OSCRelayClient(`ws://${SERVER_HOST}:${SERVER_PORT}`);
+    const client = new OSCRelayClient(); // Will use config.yml values
+    client.connect().then(() => {
+        console.log('[Client] Successfully connected to relay server');
+        client.subscribeToOSC(); 
+    }).catch(err => {
+        console.error('[Client] Failed to connect:', err);
+        process.exit(1);
+    });
 }
 
 module.exports = OSCRelayClient;
