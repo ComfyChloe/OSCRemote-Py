@@ -20,3 +20,23 @@ filters:
     - /avatar/parameters/VF54_SyncDataNum
     - /avatar/parameters/VF54_SyncPointer
     - /avatar/parameters/Voice
+    - /avatar/parameters/VFH/.*
+    - /avatar/parameters/0_Angle
+    - /avatar/parameters/VF70_TC_current_trackingEyes
+    - /avatar/parameters/VF70_TC_current_trackingRightFoot
+    - /avatar/parameters/VF70_TC_current_trackingLeftFoot
+    - /avatar/parameters/VF70_TC_current_trackingMouth
+    - /avatar/parameters/VF70_TC_current_trackingRightFingers
+    - /avatar/parameters/VF70_TC_current_trackingLeftFingers
+    - /avatar/parameters/VF70_TC_current_trackingHip
+    - /avatar/parameters/VF70_TC_current_trackingRightHand
+    - /avatar/parameters/VF70_TC_current_trackingLeftHand
+    - /avatar/parameters/VF70_TC_current_trackingHead
+    - /avatar/parameters/VF70_TC_FullControllerBuilder.Apply_on_GogoLoco_Beyond_(VRCFury)_trackingRightFoot
+    - /avatar/parameters/VF70_TC_FullControllerBuilder.Apply_on_GogoLoco_Beyond_(VRCFury)_trackingLeftFoot
+    - /avatar/parameters/Go/Crouch
+    - /avatar/parameters/Go/Mirror
+    - /avatar/parameters/VelocityMagnitude
+    - /avatar/parameters/AngularY
+    - /avatar/parameters/Go/Jump
+    - /avatar/parameters/Grounded

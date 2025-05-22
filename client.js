@@ -23,14 +23,14 @@ class OSCRelayClient {
         this.maxRetries = this.config.relay.maxRetries;
 
         this.vrchatSender = new osc.Client('127.0.0.1', this.vrchatSendPort);
-        this.setupOSCReceiver();
+        this.OSCReceiver();
 
         this.startOSCQuery();
-        this.setupKeyboardInput();
+        this.KeyboardInput();
 
         this.isTestMode = process.argv.includes('--test');
         if (this.isTestMode) {
-            this.runTestMode();
+            this.TestMode();
         }
 
         this.loadBlacklist();
@@ -85,29 +85,31 @@ class OSCRelayClient {
         console.log('[Client] Loaded blacklist patterns:', this.blacklist.size);
     }
 
-    setupOSCReceiver() {
+    OSCReceiver() {
         try {
             this.vrchatReceiver = new osc.Server(this.localOscPort, '127.0.0.1');
             console.log(`[Client] Listening for OSC on port ${this.localOscPort}`);
             
             this.vrchatReceiver.on('message', (msg, rinfo) => {
                 const [address, ...args] = msg;
-                console.log(`[Client] Local IP: ${rinfo.address} Received OSC:`, address, args);
-                
-                if (this.connected) {
-                    this.ws.send(JSON.stringify({
-                        type: 'osc_tunnel',
-                        address,
-                        args,
-                        source: rinfo.address
-                    }));
+                if (this.ProcessMessage({ address })) {
+                    console.log(`[Client] Local IP: ${rinfo.address} Received OSC:`, address, args);
+                    
+                    if (this.connected) {
+                        this.ws.send(JSON.stringify({
+                            type: 'osc_tunnel',
+                            address,
+                            args,
+                            source: rinfo.address
+                        }));
+                    }
                 }
             });
         } catch (err) {
             console.error('[Client] Failed to setup OSC receiver:', err);
             this.localOscPort++;
             if (this.localOscPort < 9020) {
-                this.setupOSCReceiver();
+                this.OSCReceiver();
             }
         }
     }
@@ -221,7 +223,7 @@ class OSCRelayClient {
                         this.vrchatSender.send(message.address, ...message.args);
                         this.parameters.set(message.address, message.args[0]);
                     }
-                    if (this.shouldProcessMessage(message)) {
+                    if (this.ProcessMessage(message)) {
                         this.messageHandlers.forEach(handler => handler(message));
                     }
                 });
@@ -262,7 +264,7 @@ class OSCRelayClient {
                 address,
                 args
             };
-            if (this.shouldProcessMessage(message)) {
+            if (this.ProcessMessage(message)) {
                 this.ws.send(JSON.stringify(message));
                 console.log('[Client] Sent OSC message:', address);
             }
@@ -287,16 +289,20 @@ class OSCRelayClient {
         this.filters.add(pattern);
     }
 
-    shouldProcessMessage(message) {
-        // Check blacklist from config
+    ProcessMessage(message) {
         if (this.config.filters.blacklist.length > 0) {
             for (const pattern of this.config.filters.blacklist) {
-                if (message.address.match(new RegExp(pattern))) {
-                    return false;
+                try {
+                    if (message.address.match(new RegExp(pattern))) {
+                        return false;
+                    }
+                } catch (err) {
+                    console.warn(`[Client] Invalid blacklist pattern: ${pattern}`);
                 }
             }
         }
-        // Then check filters as before
+        
+        // Custom filters
         if (this.filters.size === 0) return true;
         return Array.from(this.filters).some(pattern => 
             message.address.match(new RegExp(pattern)));
@@ -306,17 +312,15 @@ class OSCRelayClient {
         console.log('[Client] Received init message:', message);
     }
 
-    // Method to get stored parameter value
     getParameter(address) {
         return this.parameters.get(address);
     }
 
-    // Method to get all parameters
     getAllParameters() {
         return Object.fromEntries(this.parameters);
     }
 
-    setupKeyboardInput() {
+    KeyboardInput() {
         readline.emitKeypressEvents(process.stdin);
         process.stdin.setRawMode(true);
 
@@ -339,7 +343,7 @@ class OSCRelayClient {
         console.log('  Press Ctrl+C to exit');
     }
 
-    async runTestMode() {
+    async TestMode() {
         try {
             console.log('[Test Mode] Setting up OSC and WebSocket...');
             await this.connect();

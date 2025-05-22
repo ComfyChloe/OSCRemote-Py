@@ -6,11 +6,10 @@ const WS_PORT = 4953;
 class OSCRelay {
     constructor() {
         this.connectedClients = new Map();
-        this.setupRelayServer();
-        this.setupShutdown();
+        this.RelayServer();
+        this.Shutdown();
     }
-
-    setupRelayServer() {
+    RelayServer() {
         this.wsServer = new WebSocket.Server({ port: WS_PORT });
 
         this.wsServer.on('connection', (ws, req) => {
@@ -23,7 +22,6 @@ class OSCRelay {
                 try {
                     const message = JSON.parse(data.toString());
                     
-                    // Debug raw message
                     console.log('[Server] Raw message received:', data.toString());
                     
                     if (message.type === 'osc_tunnel') {
@@ -49,7 +47,7 @@ class OSCRelay {
         });
     }
 
-    setupShutdown() {
+    Shutdown() {
         process.on('SIGINT', () => {
             logger.log('Shutting down server...', 'SHUTDOWN');
 
