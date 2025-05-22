@@ -4,7 +4,7 @@ class OSCQueryManager {
     constructor(config) {
         this.config = config;
         this.parameters = new Map();
-        this.queryPort = config.osc.local.queryPort;
+        this.queryPort = config?.osc?.local?.queryPort || 9012;
     }
 
     start() {

@@ -31,6 +31,38 @@ class RelayManager {
             }
         });
     }
+
+    connect() {
+        return new Promise((resolve, reject) => {
+            try {
+                const url = `ws://${this.config.relay.host}:${this.config.relay.port}`;
+                this.ws = new WebSocket(url);
+
+                this.ws.on('open', () => {
+                    console.log('[Relay] Connected to server');
+                    resolve();
+                });
+
+                this.ws.on('message', (data) => {
+                    const message = JSON.parse(data);
+                    this.messageHandlers.forEach(handler => handler(message));
+                });
+
+                this.ws.on('error', reject);
+                this.ws.on('close', () => {
+                    console.log('[Relay] Disconnected from server');
+                });
+            } catch (err) {
+                reject(err);
+            }
+        });
+    }
+
+    subscribeToOSC() {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'osc_subscribe' }));
+        }
+    }
 }
 
 module.exports = RelayManager;

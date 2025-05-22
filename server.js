@@ -76,6 +76,14 @@ if (require.main === module) {
         client: {
             port: 9001,
             host: '127.0.0.1'
+        },
+        osc: {
+            local: {
+                sendPort: 9000,
+                receivePort: 9001,
+                queryPort: 9012,
+                ip: '127.0.0.1'
+            }
         }
     };
 
