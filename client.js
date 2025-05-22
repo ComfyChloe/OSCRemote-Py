@@ -15,7 +15,7 @@ class OSCRelayClient {
         this.maxRetries = 5;
         this.parameters = new Map();
 
-        this.localOscPort = 9011;
+        this.localOscPort = 9000;
         this.vrchatSendPort = 9000;
         this.vrchatReceivePort = 9001;
 
@@ -40,7 +40,7 @@ class OSCRelayClient {
                         type: 'osc_tunnel',
                         address,
                         args,
-                        source: 'local'
+                        source: '127.0.0.1'
                     }));
                 }
             });
