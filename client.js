@@ -5,7 +5,6 @@ const http = require('http');
 const readline = require('readline');
 const yaml = require('yaml');
 const fs = require('fs');
-const crypto = require('crypto');
 
 class OSCRelayClient {
     constructor(serverUrl) {
@@ -44,8 +43,8 @@ class OSCRelayClient {
         }
         
         if (!this.config.relay.user.id) {
-            // Generate random 8-byte hex string
-            this.config.relay.user.id = crypto.randomBytes(8).toString('hex');
+            const randomId = Math.random().toString(36).substring(2, 10);
+            this.config.relay.user.id = randomId;
             this.saveConfig();
         }
 
@@ -291,7 +290,8 @@ class OSCRelayClient {
             const message = {
                 type: 'osc_tunnel',
                 address,
-                args
+                args,
+                userId: this.userId // Always include userId in messages
             };
             if (this.ProcessMessage(message)) {
                 this.ws.send(JSON.stringify(message));

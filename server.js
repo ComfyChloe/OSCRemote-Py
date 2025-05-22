@@ -6,7 +6,7 @@ const WS_PORT = 4953;
 class OSCRelay {
     constructor() {
         this.connectedClients = new Map();
-        this.clientIds = new Map();
+        this.clientIds = new Map(); // Track user IDs
         this.RelayServer();
         this.Shutdown();
     }
@@ -28,8 +28,8 @@ class OSCRelay {
                         return;
                     }
 
+                    const userId = message.userId || this.clientIds.get(clientId) || 'unknown';
                     if (message.type === 'osc_tunnel') {
-                        const userId = this.clientIds.get(clientId) || 'unknown';
                         console.log(`[Server] User ${userId} Received OSC: ${message.address} ${JSON.stringify(message.args)}`);
                         message.userId = userId;
                         this.broadcastToClients(message, clientId);
@@ -64,7 +64,6 @@ class OSCRelay {
             });
         });
     }
-
     broadcastToClients(message, senderId) {
         this.connectedClients.forEach((ws, clientId) => {
             if (clientId !== senderId && ws.readyState === WebSocket.OPEN) {
@@ -76,6 +75,5 @@ class OSCRelay {
         });
     }
 }
-
 new OSCRelay();
 logger.log(`Relay started on ws://localhost:${WS_PORT}`, 'START');
