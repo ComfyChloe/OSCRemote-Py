@@ -40,6 +40,7 @@ filters:
       - /avatar/parameters/AngularY
       - /avatar/parameters/Go/Jump
       - /avatar/parameters/Grounded
+      - /avatar/parameters/0_Stretch
     transmission:
       - /avatar/parameters/Voice
       - /monitoring/.*
@@ -69,6 +70,7 @@ filters:
       - /avatar/parameters/AngularY
       - /avatar/parameters/Go/Jump
       - /avatar/parameters/Grounded
+      - /avatar/parameters/0_Stretch
 logging:
   console: true
   file: true

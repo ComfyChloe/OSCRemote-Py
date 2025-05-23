@@ -22,21 +22,17 @@ class OSCRelayClient {
         await this.oscManager.createSender(this.config.osc.local.sendPort);
         await this.oscQueryManager.start();
         this.oscManager.onMessage((msg) => {
-            // Check both console and transmission blacklists
             const shouldLog = this.ProcessMessage(msg, 'console');
             const shouldTransmit = this.ProcessMessage(msg, 'transmission');
             
-            // Only forward to relay if it passes transmission filter
             if (shouldTransmit && !msg.relayed) {
                 this.relayManager.handleClientMessage({
                     type: 'osc_tunnel',
                     userId: this.userId,
-                    relayed: true, // Mark as relayed to prevent loops
+                    relayed: true,
                     ...msg
-                });
+                }); 
             }
-
-            // Let the OSC manager know if it should log
             return shouldLog;
         });
 

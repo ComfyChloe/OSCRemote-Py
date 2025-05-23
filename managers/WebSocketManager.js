@@ -47,6 +47,9 @@ class WebSocketManager {
             if (message.type === 'identify') {
                 clientInfo.userId = message.userId;
                 console.log(`[WebSocket] Client ${clientId} identified as: ${message.userId}`);
+            } else if (message.type === 'osc_tunnel') {
+                const userId = clientInfo.userId || clientId;
+                console.log(`[WebSocket] OSC from ${userId}: ${message.address} | [${message.args.join(', ')}]`);
             }
 
             this.messageHandlers.forEach(handler => handler(clientId, message));
