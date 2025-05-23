@@ -188,14 +188,14 @@ class OSCRelayClient {
                     }
                 });
 
-                this.oscQueryServer.listen(port, '127.0.0.1', () => {
+                this.oscQueryServer.listen(port, '127.0.0.1', () => {                       
                     console.log(`[Client] OSCQuery server listening on port ${port}`);
                     this.config.osc.local.queryPort = port;
-                    this.saveConfig();
+                    this.saveConfig();          
                 });
             } catch (err) {
                 if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
-                    tryPort(port + 1);
+                    tryPort(port + 1);              
                 } else {
                     console.warn('[Client] Could not start OSCQuery server:', err.message);
                 }
@@ -210,7 +210,7 @@ class OSCRelayClient {
             DESCRIPTION: "OSC Relay Client",
             HOST_INFO: {
                 NAME: "OSCRelay",
-                OSC_PORT: this.vrchatSendPort,
+                OSC_PORT: this.vrchatSendPort,                  
                 OSC_TRANSPORT: "UDP",
                 OSC_IP: "127.0.0.1"
             },
