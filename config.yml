@@ -4,10 +4,10 @@ relay:
   maxRetries: 5
   connection:
     retries: 3 // -1 for endless
-    retryDelay: 5000  
+    retryDelay: 5000
   user:
     name: Chloe
-    id: 15000
+    id: daai56a8
 osc:
   local:
     sendPort: 9000
@@ -16,7 +16,7 @@ osc:
     ip: 127.0.0.1
 filters:
   blacklist:
-    console:  # Messages that won't be logged but will be transmitted
+    console:
       - /avatar/parameters/VelocityX
       - /avatar/parameters/VelocityY
       - /avatar/parameters/VelocityZ
@@ -40,7 +40,7 @@ filters:
       - /avatar/parameters/AngularY
       - /avatar/parameters/Go/Jump
       - /avatar/parameters/Grounded
-    transmission:  # Messages that won't be transmitted at all
+    transmission:
       - /avatar/parameters/Voice
       - /monitoring/.*
       - /avatar/parameters/VFH/.*

@@ -21,27 +21,28 @@ class OSCRelayClient {
         await this.oscManager.createReceiver(this.config.osc.local.receivePort);
         await this.oscManager.createSender(this.config.osc.local.sendPort);
         await this.oscQueryManager.start();
-
         this.oscManager.onMessage((msg) => {
-            if (this.ProcessMessage(msg, 'console') === false) {
-                return false; // Stop processing if blacklisted for console
-            }
+            // Check both console and transmission blacklists
+            const shouldLog = this.ProcessMessage(msg, 'console');
+            const shouldTransmit = this.ProcessMessage(msg, 'transmission');
             
-            if (this.ProcessMessage(msg, 'transmission') === false) {
-                console.log(`[Client] Blocked transmission of blacklisted message: ${msg.address}`);
-                return false;
+            // Only forward to relay if it passes transmission filter
+            if (shouldTransmit && !msg.relayed) {
+                this.relayManager.handleClientMessage({
+                    type: 'osc_tunnel',
+                    userId: this.userId,
+                    relayed: true, // Mark as relayed to prevent loops
+                    ...msg
+                });
             }
-            
-            this.relayManager.handleClientMessage({
-                type: 'osc_tunnel',
-                userId: this.userId,
-                ...msg
-            });
-            return true;
+
+            // Let the OSC manager know if it should log
+            return shouldLog;
         });
 
         this.relayManager.messageHandlers.add((message) => {
-            if (message.type === 'osc_tunnel' && this.ProcessMessage(message)) {
+            if (message.type === 'osc_tunnel' && !message.relayed) {
+                console.log(`[Client] Received relay message from ${message.userId}: ${message.address}`);
                 this.oscManager.send(
                     this.config.osc.local.sendPort,
                     message.address,
@@ -159,16 +160,18 @@ class OSCRelayClient {
         process.stdin.setRawMode(true);
 
         process.stdin.on('keypress', (str, key) => {
-            if (key.ctrl && key.name === 'c') {
-                process.exit();
-            } else if (key.name === 't') {
-                const testValue = Math.random();
-                console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
-                this.oscManager.send(this.config.osc.local.sendPort, '/avatar/change', testValue);
-            } else if (key.name === 'r') {
-                const testValue = Math.floor(Math.random() * 100);
-                console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
-                this.oscManager.send(this.config.osc.local.sendPort, '/avatar/change', testValue);
+            if (key.sequence === str) {
+                if (key.ctrl && key.name === 'c') {
+                    process.exit();
+                } else if (key.name === 't') {
+                    const testValue = Math.random();
+                    console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
+                    this.oscManager.send(this.config.osc.local.sendPort, '/avatar/change', testValue);
+                } else if (key.name === 'r') {
+                    const testValue = Math.floor(Math.random() * 100);
+                    console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
+                    this.oscManager.send(this.config.osc.local.sendPort, '/avatar/change', testValue);
+                }
             }
         });
         console.log('[Client] Keyboard controls enabled:');

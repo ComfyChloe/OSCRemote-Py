@@ -20,18 +20,20 @@ class OSCRelay {
         this.wsManager.startServer();
 
         this.oscManager.onMessage((msg) => {
-            if (this.ProcessMessage(msg)) {
+            if (this.ProcessMessage(msg) && !msg.relayed) {
                 const relayMessage = {
                     type: 'osc_tunnel',
                     ...msg,
-                    userId: 'SERVER'
+                    userId: 'SERVER',
+                    relayed: true
                 };
+                console.log(`[Server] Relaying OSC to clients: ${msg.address}`);
                 this.wsManager.broadcast(relayMessage);
             }
         });
 
         this.wsManager.onMessage((clientId, message) => {
-            if (message.type === 'osc_tunnel' && this.ProcessMessage(message)) {
+            if (message.type === 'osc_tunnel' && this.ProcessMessage(message) && !message.relayed) {
                 const clientInfo = this.wsManager.clientInfo.get(clientId);
                 console.log(`[Server] Relaying OSC from ${clientInfo?.userId || clientId}: ${message.address}`);
                 this.oscManager.send(this.config.client.port, message.address, ...message.args);

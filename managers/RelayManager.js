@@ -95,6 +95,16 @@ class RelayManager {
                     resolve();
                 });
 
+                this.ws.on('message', (data) => {
+                    try {
+                        const message = JSON.parse(data);
+                        console.log(`[Relay] Received message from server: ${message.type}`);
+                        this.messageHandlers.forEach(handler => handler(message));
+                    } catch (err) {
+                        console.error('[Relay] Error processing server message:', err);
+                    }
+                });
+
                 this.ws.on('error', (error) => {
                     const errorMessage = `[Relay] Connection error: ${error.message || 'Unknown error'}`;
                     console.error(errorMessage);
