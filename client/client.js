@@ -1,8 +1,8 @@
 const yaml = require('yaml');
 const fs = require('fs');
 const logger = require('../logger');
-const OSCManager = require('../managers/OSCManager');
-const OSCQueryManager = require('../managers/OSCQueryManager');
+const OSCManager = require('./managers/OSCManager');
+const OSCQueryManager = require('./managers/OSCQueryManager');
 const RelayManager = require('./managers/RelayManager');
 
 class OSCRelayClient {

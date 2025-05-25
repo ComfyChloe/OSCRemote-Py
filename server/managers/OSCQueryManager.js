@@ -26,7 +26,7 @@ class OSCQueryManager {
             });
 
             this.server.listen(port, '127.0.0.1', () => {
-                console.log(`[OSCQuery] Server listening on port ${port}`);
+                console.log(`[Server] OSCQuery server listening on port ${port}`);
                 resolve(port);
             });
         } catch (err) {
@@ -36,9 +36,9 @@ class OSCQueryManager {
 
     handleQuery(req, res) {
         const response = {
-            DESCRIPTION: "OSC Relay Query Server",
+            DESCRIPTION: "OSC Relay Server Query Server",
             HOST_INFO: {
-                NAME: "OSCRelay",
+                NAME: "OSCRelayServer",
                 OSC_TRANSPORT: "UDP",
                 OSC_IP: "127.0.0.1",
                 OSC_PORT: this.config.osc.local.sendPort

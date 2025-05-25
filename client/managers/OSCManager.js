@@ -3,7 +3,6 @@ const osc = require('node-osc');
 class OSCManager {
     constructor(config) {
         this.config = config;
-        this.isServer = !!config.server;
         this.receivers = new Map();
         this.senders = new Map();
         this.messageHandlers = new Set();
@@ -19,6 +18,7 @@ class OSCManager {
                 const server = new osc.Server(port, '127.0.0.1');
                 server.on('listening', () => {
                     this.receivers.set(port, server);
+                    console.log(`[Client] OSC receiver listening on port ${port}`);
                     resolve(port);
                 });
                 server.on('message', this.handleMessage.bind(this));
@@ -35,6 +35,7 @@ class OSCManager {
             this.senders.set(port, client);
             return client;
         } catch (err) {
+            console.error('[Client] Failed to create OSC sender:', err);
             throw err;
         }
     }
@@ -55,8 +56,7 @@ class OSCManager {
         });
 
         if (shouldLog && this.config?.logging?.osc?.incoming && shouldProcess) {
-            const prefix = this.isServer ? '[Server]' : '[Client]';
-            console.log(`${prefix} | Local IP: ${rinfo.address} | Received OSC: ${address} | [${args.join(', ')}]`);
+            console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC: ${address} | [${args.join(', ')}]`);
         }
     }
 
@@ -70,9 +70,8 @@ class OSCManager {
             sender = this.createSender(port);
         }
         if (sender) {
-            const prefix = this.isServer ? '[Server]' : '[Client]';
             if (this.config?.logging?.osc?.outgoing) {
-                console.log(`${prefix} | Sending OSC to port ${port}: ${address} | [${args.join(', ')}]`);
+                console.log(`[Client] | Sending OSC to port ${port}: ${address} | [${args.join(', ')}]`);
             }
             sender.send(address, ...args);
         }
