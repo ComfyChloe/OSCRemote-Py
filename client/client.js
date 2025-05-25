@@ -19,7 +19,12 @@ class OSCRelayClient {
 
     loadConfig() {
         try {
-            const file = fs.readFileSync('./Client-Config.yml', 'utf8');
+            let configPath = './client/Client-Config.yml';
+            if (!fs.existsSync(configPath)) {
+                configPath = './Client-Config.yml';
+            }
+            
+            const file = fs.readFileSync(configPath, 'utf8');
             this.config = yaml.parse(file);
             logger.setLogPath(this.config.logging?.path || 'logs/client');
             logger.log('Loaded client configuration', 'CONFIG');
@@ -36,39 +41,54 @@ class OSCRelayClient {
     }
 
     async setupOSCQueryServer() {
-        // VRChat expects OSCQuery to advertise the port it will send to (receivePort)
         const receivePort = this.config.osc.local.receivePort || 9001;
-        const queryPort = this.config.osc.local.queryPort || 9012;
+        const queryPort = this.config.osc.local.queryPort || 36455;
         const ip = this.config.osc.local.ip || '127.0.0.1';
 
-        // Start OSC receiver for VRChat to send to
         this.oscManager = new OSCManager(this.config);
-        await this.oscManager.createReceiver(receivePort, ip);
-
-        // Start OSC sender for sending to VRChat (port 9000)
         await this.oscManager.createSender(this.config.osc.local.sendPort, ip);
 
-        // Start OSCQueryServer, advertise receivePort
         this.oscQueryServer = new OSCQueryServer({
             oscPort: receivePort,
             httpPort: queryPort,
-            serviceName: "OSCRelayClient"
+            serviceName: "Chloes-OSCRelay",
+            oscTransport: "UDP"
         });
 
-        // Register a test endpoint (like /foo in the example)
-        this.oscQueryServer.addMethod("/foo", {
-            description: "demonstrates a read-only OSC node- single float value ranged 0-100",
-            access: OSCQAccess.READONLY,
+        const osc = require('node-osc');
+        const server = new osc.Server(receivePort, ip);
+        server.on('message', (msg, rinfo) => {
+            const [address, ...args] = msg;
+            const message = { address, args, source: rinfo.address, port: rinfo.port };
+
+            if (this.config?.logging?.osc?.incoming) {
+                console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC: ${address} | [${args.join(', ')}]`);
+            }
+
+            const shouldTransmit = this.ProcessMessage(message, 'transmission');
+            if (shouldTransmit) {
+                this.relayManager?.handleClientMessage({
+                    type: 'osc_tunnel',
+                    userId: this.config.relay.user.id,
+                    relayed: true,
+                    ...message
+                });
+            }
+        });
+
+        // Add OSC endpoints that VRChat can discover
+        this.oscQueryServer.addMethod("/avatar/parameters/*", {
+            description: "Avatar parameter changes",
+            access: OSCQAccess.READWRITE,
             arguments: [
-                {
+                { 
                     type: OSCTypeSimple.FLOAT,
-                    range: { min: 0, max: 100 },
+                    range: { min: 0, max: 1 }
                 }
             ]
         });
-        this.oscQueryServer.setValue("/foo", 0, 0.5);
 
-        // Register a /status endpoint
+        // Add status endpoint
         this.oscQueryServer.addMethod("/status", {
             description: "Client status string",
             access: OSCQAccess.READONLY,
@@ -78,8 +98,9 @@ class OSCRelayClient {
         });
         this.oscQueryServer.setValue("/status", 0, this.status);
 
+        // The OSCQuery server will now handle incoming OSC messages
         await this.oscQueryServer.start();
-        console.log(`[Client] OSCQueryServer started on port ${queryPort}, advertising OSC receive port ${receivePort}`);
+        console.log(`[Client] OSCQuery server started on port ${queryPort}, listening for OSC on ${receivePort}`);
 
         this.setupRelay();
         this.broadcastStatus("waiting for input");
