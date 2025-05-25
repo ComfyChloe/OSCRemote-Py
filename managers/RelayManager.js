@@ -116,8 +116,8 @@ class RelayManager {
                 this.ws.on('close', async (code, reason) => {
                     console.log(`[Relay] Connection closed${reason ? `: ${reason}` : ''} (Code: ${code})`);
                     
+                    this.connectionAttempts++;
                     if (this.maxRetries === -1 || this.connectionAttempts < this.maxRetries) {
-                        this.connectionAttempts++;
                         const remaining = this.maxRetries === -1 ? 'infinite' : (this.maxRetries - this.connectionAttempts);
                         console.log(`[Relay] Connection attempt ${this.connectionAttempts}${this.maxRetries !== -1 ? `/${this.maxRetries}` : ''}`);
                         console.log(`[Relay] Reconnecting in ${this.retryDelay/1000} seconds... (Attempts remaining: ${remaining})`);
@@ -127,13 +127,11 @@ class RelayManager {
                                 await this.connect();
                                 this.subscribeToOSC();
                             } catch (err) {
-                                if (this.connectionAttempts >= this.maxRetries && this.maxRetries !== -1) {
-                                    console.error('[Relay] Final connection attempt failed');
-                                    reject(err);
-                                }
+                                console.error('[Relay] Final connection attempt failed');
+                                reject(err);
                             }
                         }, this.retryDelay);
-                    } else if (this.maxRetries !== -1) {
+                    } else {
                         const error = new Error('Maximum reconnection attempts reached');
                         console.error('[Relay] ' + error.message);
                         reject(error);

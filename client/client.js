@@ -1,9 +1,9 @@
 const yaml = require('yaml');
 const fs = require('fs');
-const logger = require('./logger');
-const OSCManager = require('./managers/OSCManager');
-const OSCQueryManager = require('./managers/OSCQueryManager');
-const RelayManager = require('./managers/RelayManager');
+const logger = require('../logger');
+const OSCManager = require('../managers/OSCManager');
+const OSCQueryManager = require('../managers/OSCQueryManager');
+const RelayManager = require('../managers/RelayManager');
 
 class OSCRelayClient {
     constructor() {
@@ -76,7 +76,7 @@ class OSCRelayClient {
     OSCReceiver() {
         const createServer = (port) => {
             try {
-                const server = new osc.Server(port, '127.0.0.1');
+                const server = new osc.Server(port, this.config.osc.local.ip);
                 
                 server.on('listening', () => {
                     console.log(`[Client] Listening for OSC on port ${port}`);
@@ -86,13 +86,7 @@ class OSCRelayClient {
                 });
 
                 server.on('error', (err) => {
-                    if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
-                        console.log(`[Client] Port ${port} not available, trying ${port + 1}...`);
-                        server.close();
-                        createServer(port + 1);
-                    } else {
-                        console.error('[Client] OSC server error:', err);
-                    }
+                    console.error('[Client] OSC server error:', err);
                 });
 
                 server.on('message', (msg, rinfo) => {
@@ -113,17 +107,11 @@ class OSCRelayClient {
                 });
 
             } catch (err) {
-                if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
-                    console.log(`[Client] Port ${port} failed, trying ${port + 1}...`);
-                    createServer(port + 1);
-                } else {
-                    console.error('[Client] Failed to create OSC server:', err);
-                }
+                console.error('[Client] Failed to create OSC server:', err);
             }
         };
 
-        // Start with configured port or default
-        createServer(this.localOscPort || 9001);
+        createServer(this.config.osc.local.receivePort);
     }
 
     startOSCQuery() {
@@ -229,7 +217,7 @@ class OSCRelayClient {
 
     saveConfig() {
         try {
-            fs.writeFileSync('./config.yml', yaml.stringify(this.config));
+            fs.writeFileSync('./Client-Config.yml', yaml.stringify(this.config));
         } catch (err) {
             console.error('[Client] Failed to save config:', err);
         }
