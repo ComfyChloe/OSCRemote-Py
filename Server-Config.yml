@@ -1,0 +1,25 @@
+server:
+  port: 4953
+  host: 57.128.188.155
+  allowLocalMessages: true
+client:
+  port: 9001
+  host: 127.0.0.1
+osc:
+  local:
+    sendPort: 9000
+    receivePort: 9001
+    queryPort: 9012
+    ip: 127.0.0.1
+filters:
+  blacklist:
+    transmission:
+      - /monitoring/.*
+      - /avatar/parameters/VFH/.*
+logging:
+  console: true
+  file: true
+  osc:
+    incoming: true
+    outgoing: true
+  path: logs/server

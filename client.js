@@ -1,5 +1,6 @@
 const yaml = require('yaml');
 const fs = require('fs');
+const logger = require('./logger');
 const OSCManager = require('./managers/OSCManager');
 const OSCQueryManager = require('./managers/OSCQueryManager');
 const RelayManager = require('./managers/RelayManager');
@@ -8,13 +9,37 @@ class OSCRelayClient {
     constructor() {
         this.loadConfig();
         this.ensureUserId();
-        
+        this.initializeManagers();
+        this.setupKeyboardControls();
+    }
+
+    loadConfig() {
+        try {
+            const file = fs.readFileSync('./Client-Config.yml', 'utf8');
+            this.config = yaml.parse(file);
+            logger.setLogPath(this.config.logging?.path || 'logs/client');
+            logger.log('Loaded client configuration', 'CONFIG');
+        } catch (err) {
+            console.error('Failed to load Client-Config.yml:', err);
+            process.exit(1);
+        }
+    }
+
+    ensureUserId() {
+        if (!this.config.relay.user) {
+            this.config.relay.user = { name: "", id: "" };
+        }
+        if (this.queryPort === 0) {
+            this.queryPort = 9012; 
+        }
+    }
+
+    initializeManagers() {
         this.oscManager = new OSCManager(this.config);
         this.oscQueryManager = new OSCQueryManager(this.config);
         this.relayManager = new RelayManager(this.config);
 
         this.setupManagers();
-        this.setupKeyboardControls();
     }
 
     async setupManagers() {
@@ -46,59 +71,6 @@ class OSCRelayClient {
                 );
             }
         });
-    }
-
-    loadConfig() {
-        try {
-            const file = fs.readFileSync('./config.yml', 'utf8');
-            this.config = yaml.parse(file);
-            console.log('[Client] Loaded configuration');
-            
-            this.config.relay = this.config.relay || {};
-            this.config.relay.host = this.config.relay.host || '57.128.188.155';
-            this.config.relay.port = this.config.relay.port || 4953;
-            this.config.relay.maxRetries = this.config.relay.maxRetries || 5;
-
-            this.config.osc = this.config.osc || {};
-            this.config.osc.local = this.config.osc.local || {};
-            this.config.osc.local.sendPort = this.config.osc.local.sendPort || 9000;
-            this.config.osc.local.receivePort = this.config.osc.local.receivePort || 9001;
-            this.config.osc.local.queryPort = this.config.osc.local.queryPort || 9012;
-            this.config.osc.local.ip = this.config.osc.local.ip || '127.0.0.1';
-
-            this.config.filters = this.config.filters || {};
-            this.config.filters.blacklist = this.config.filters.blacklist || [];
-
-        } catch (err) {
-            console.warn('[Client] No config.yml found, using defaults');
-            this.config = {
-                relay: {
-                    host: '57.128.188.155',
-                    port: 4953,
-                    maxRetries: 5
-                },
-                osc: {
-                    local: {
-                        sendPort: 9000,
-                        receivePort: 9001,
-                        queryPort: 9012,
-                        ip: '127.0.0.1'
-                    }
-                },
-                filters: {
-                    blacklist: []
-                }
-            };
-        }
-    }
-
-    ensureUserId() {
-        if (!this.config.relay.user) {
-            this.config.relay.user = { name: "", id: "" };
-        }
-        if (this.queryPort === 0) {
-            this.queryPort = 9012; 
-        }
     }
 
     OSCReceiver() {
