@@ -1,8 +1,0 @@
-blacklist:
-  - /avatar/parameters/VelocityX
-  - /avatar/parameters/VelocityY
-  - /avatar/parameters/VelocityZ
-  - /avatar/parameters/InStation
-  - /monitoring/.*
-  - /avatar/parameters/VF54_SyncDataNum
-  - /avatar/parameters/VF54_SyncPointer

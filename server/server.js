@@ -1,18 +1,36 @@
-const logger = require('./logger');
+const logger = require('../logger');
 const readline = require('readline');
 const WebSocketManager = require('./managers/WebSocketManager');
 const OSCManager = require('./managers/OSCManager');
 const OSCQueryManager = require('./managers/OSCQueryManager');
+const RelayManager = require('./managers/RelayManager');
+const yaml = require('yaml');
+const fs = require('fs');
 
 class OSCRelay {
-    constructor(config = {}) {
-        this.config = config;
-        this.wsManager = new WebSocketManager(config);
-        this.oscManager = new OSCManager(config);
-        this.oscQueryManager = new OSCQueryManager(config);
-        
-        this.setupManagers();
+    constructor() {
+        this.loadConfig();
+        this.initializeManagers();
         this.setupKeyboardControls();
+    }
+
+    loadConfig() {
+        try {
+            const file = fs.readFileSync('./Server-Config.yml', 'utf8');
+            this.config = yaml.parse(file);
+            logger.setLogPath(this.config.logging?.path || 'logs/server');
+            logger.log('Loaded server configuration', 'CONFIG');
+        } catch (err) {
+            console.error('Failed to load Server-Config.yml:', err);
+            process.exit(1);
+        }
+    }
+
+    initializeManagers() {
+        this.wsManager = new WebSocketManager(this.config);
+        this.oscManager = new OSCManager(this.config);
+        this.oscQueryManager = new OSCQueryManager(this.config);
+        this.setupManagers();
     }
 
     async setupManagers() {
@@ -91,28 +109,8 @@ class OSCRelay {
 }
 
 if (require.main === module) {
-    const config = {
-        server: {
-            port: 4953,
-            host: '57.128.188.155',
-            allowLocalMessages: true
-        },
-        client: {
-            port: 9001,
-            host: '127.0.0.1'
-        },
-        osc: {
-            local: {
-                sendPort: 9000,
-                receivePort: 9001,
-                queryPort: 9012,
-                ip: '127.0.0.1'
-            }
-        }
-    };
-
-    const relay = new OSCRelay(config);
-    logger.log(`Relay system started`, 'START');
+    const relay = new OSCRelay();
+    logger.log('Relay system started', 'START');
 }
 
 module.exports = OSCRelay;

@@ -1,13 +1,10 @@
-relay:
-  host: 57.128.188.155
+server:
   port: 4953
-  maxRetries: 5
-  connection:
-    retries: 3 // -1 for endless
-    retryDelay: 5000
-  user:
-    name: Chloe
-    id: daai56a8
+  host: 57.128.188.155
+  allowLocalMessages: true
+client:
+  port: 9001
+  host: 127.0.0.1
 osc:
   local:
     sendPort: 9000
@@ -77,3 +74,4 @@ logging:
   osc:
     incoming: true
     outgoing: true
+  path: logs/server

@@ -2,7 +2,11 @@ const fs = require('fs');
 const path = require('path');
 
 class Logger {
-    constructor(logPath) {
+    constructor() {
+        this.setLogPath('logs');
+    }
+
+    setLogPath(logPath) {
         this.logPath = logPath;
         this.logFile = path.join(logPath, `osc_relay_${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
         
@@ -21,4 +25,4 @@ class Logger {
     }
 }
 
-module.exports = new Logger(path.join(__dirname, 'logs'));
+module.exports = new Logger();
