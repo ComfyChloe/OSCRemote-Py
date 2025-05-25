@@ -61,11 +61,13 @@ class OSCRelayClient {
             const [address, ...args] = msg;
             const message = { address, args, source: rinfo.address, port: rinfo.port };
 
-            if (this.config?.logging?.osc?.incoming) {
+            const shouldLog = this.ProcessMessage(message, 'console');
+            const shouldTransmit = this.ProcessMessage(message, 'transmission');
+
+            if (shouldLog && this.config?.logging?.osc?.incoming) {
                 console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC: ${address} | [${args.join(', ')}]`);
             }
 
-            const shouldTransmit = this.ProcessMessage(message, 'transmission');
             if (shouldTransmit) {
                 this.relayManager?.handleClientMessage({
                     type: 'osc_tunnel',
@@ -98,7 +100,6 @@ class OSCRelayClient {
         });
         this.oscQueryServer.setValue("/status", 0, this.status);
 
-        // The OSCQuery server will now handle incoming OSC messages
         await this.oscQueryServer.start();
         console.log(`[Client] OSCQuery server started on port ${queryPort}, listening for OSC on ${receivePort}`);
 
@@ -127,7 +128,6 @@ class OSCRelayClient {
         this.relayManager.messageHandlers.add((message) => {
             if (message.type === 'osc_tunnel' && !message.relayed) {
                 console.log(`[Client] Received relay message from ${message.userId}: ${message.address}`);
-                // Send to VRChat (port 9000)
                 this.oscManager.send(
                     this.config.osc.local.sendPort,
                     message.address,
@@ -136,7 +136,6 @@ class OSCRelayClient {
             }
         });
 
-        // Start relay connection
         this.relayManager.connect().then(() => {
             console.log('[Client] Connection established, subscribing to OSC');
             this.relayManager.subscribeToOSC();
@@ -158,32 +157,19 @@ class OSCRelayClient {
     }
 
     ProcessMessage(message, type = 'transmission') {
-        if (!message || !message.address) return false;
-        if (type === 'console') {
-            const consoleBlacklist = this.config.filters.blacklist.console || [];
-            const transmissionBlacklist = this.config.filters.blacklist.transmission || [];
-            for (const pattern of [...consoleBlacklist, ...transmissionBlacklist]) {
-                try {
-                    if (new RegExp(pattern.replace('*', '.*')).test(message.address)) {
-                        return false;
-                    }
-                } catch (err) {
-                    console.warn(`[Client] Invalid blacklist pattern: ${pattern}`);
-                }
-            }
-        } else {
-            const blacklist = this.config.filters.blacklist[type] || [];
-            for (const pattern of blacklist) {
-                try {
-                    if (new RegExp(pattern.replace('*', '.*')).test(message.address)) {
-                        return false;
-                    }
-                } catch (err) {
-                    console.warn(`[Client] Invalid blacklist pattern: ${pattern}`);
-                }
-            }
+        if (!message?.address || !this.config?.filters?.blacklist) {
+            return true;
         }
-        return true;
+        const blacklist = this.config.filters.blacklist[type] || [];
+        return !blacklist.some(pattern => {
+            try {
+                const regex = new RegExp(pattern.replace('*', '.*'));
+                return regex.test(message.address);
+            } catch (err) {
+                console.warn(`[Client] Invalid blacklist pattern: ${pattern}`);
+                return false;
+            }
+        });
     }
 
     setupKeyboardControls() {
@@ -198,7 +184,6 @@ class OSCRelayClient {
                 } else if (key.name === 't') {
                     const testValue = Math.random() * 100;
                     console.log(`[Client] Sending test message: /foo ${testValue}`);
-                    // Send to VRChat (port 9000)
                     this.oscManager.send(this.config.osc.local.sendPort, '/foo', testValue);
                 } else if (key.name === 'r') {
                     const testValue = Math.floor(Math.random() * 100);

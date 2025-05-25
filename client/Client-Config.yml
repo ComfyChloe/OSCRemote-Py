@@ -21,6 +21,7 @@ filters:
       - /avatar/parameters/VelocityZ
       - /avatar/parameters/InStation
       - /avatar/parameters/0_Angle
+      - /avatar/parameters/Voice
       - /avatar/parameters/VF70_TC_current_trackingEyes
       - /avatar/parameters/VF70_TC_current_trackingRightFoot
       - /avatar/parameters/VF70_TC_current_trackingLeftFoot
@@ -40,17 +41,17 @@ filters:
       - /avatar/parameters/Go/Jump
       - /avatar/parameters/Grounded
       - /avatar/parameters/0_Stretch
+      - /avatar/parameters/AvatarProp/RightHand_dog
+      - /avatar/parameters/AvatarProp/LeftHand_dog
+      - /avatar/parameters/HaloSys
     transmission:
       - /avatar/parameters/Voice
-      - /monitoring/.*
-      - /avatar/parameters/VFH/.*
-      - /avatar/parameters/VF54_SyncDataNum
-      - /avatar/parameters/VF54_SyncPointer
       - /avatar/parameters/VelocityX
       - /avatar/parameters/VelocityY
       - /avatar/parameters/VelocityZ
       - /avatar/parameters/InStation
       - /avatar/parameters/0_Angle
+      - /avatar/parameters/Voice
       - /avatar/parameters/VF70_TC_current_trackingEyes
       - /avatar/parameters/VF70_TC_current_trackingRightFoot
       - /avatar/parameters/VF70_TC_current_trackingLeftFoot
@@ -70,6 +71,9 @@ filters:
       - /avatar/parameters/Go/Jump
       - /avatar/parameters/Grounded
       - /avatar/parameters/0_Stretch
+      - /avatar/parameters/AvatarProp/RightHand_dog
+      - /avatar/parameters/AvatarProp/LeftHand_dog
+      - /avatar/parameters/HaloSys*
 logging:
   console: true
   file: true

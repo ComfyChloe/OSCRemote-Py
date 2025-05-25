@@ -28,7 +28,7 @@ class OSCManager {
             sender = this.createSender(port);
         }
         if (sender) {
-            if (this.config?.logging?.osc?.outgoing) {
+            if (this.config?.logging?.osc?.outgoing === true) {
                 console.log(`[Client] | Sending OSC to port ${port}: ${address} | [${args.join(', ')}]`);
             }
             sender.send(address, ...args);
