@@ -2,15 +2,18 @@ const yaml = require('yaml');
 const fs = require('fs');
 const logger = require('../logger');
 const OSCManager = require('./managers/OSCManager');
-const OSCQueryManager = require('./managers/OSCQueryManager');
 const RelayManager = require('./managers/RelayManager');
+const { OSCQueryDiscovery, OSCQueryServer, OSCQAccess, OSCTypeSimple } = require('oscquery');
 
 class OSCRelayClient {
     constructor() {
         this.loadConfig();
         this.ensureUserId();
-        this.initializeManagers();
-        this.setupKeyboardControls();
+        this.parameters = new Map();
+        this.status = "waiting for input";
+        this.oscServerInfo = null;
+        this.oscQueryServer = null; // will hold OSCQueryServer instance
+        this.initializeDiscovery();
     }
 
     loadConfig() {
@@ -29,34 +32,94 @@ class OSCRelayClient {
         if (!this.config.relay.user) {
             this.config.relay.user = { name: "", id: "" };
         }
-        if (this.queryPort === 0) {
-            this.queryPort = 9012; 
-        }
     }
 
-    initializeManagers() {
+    initializeDiscovery() {
+        // Discover OSCQuery servers on the network
+        this.discovery = new OSCQueryDiscovery();
+        this.discovery.on("up", (service) => {
+            console.log(`[Client] Discovered OSCQuery service at ${service.address}:${service.port}`);
+            this.oscServerInfo = {
+                ip: service.address,
+                oscPort: service.hostInfo.OSC_PORT,
+                queryPort: service.port
+            };
+            this.initializeManagers();
+        });
+        this.discovery.start();
+
+        // If no OSCQuery server is found after timeout, fallback to local server
+        setTimeout(() => {
+            if (!this.oscServerInfo) {
+                console.warn('[Client] No OSCQuery server found, starting local OSC/OSCQuery servers.');
+                this.oscServerInfo = {
+                    ip: '127.0.0.1',
+                    oscPort: 9000,
+                    queryPort: 9012
+                };
+                this.initializeManagers(true);
+            }
+        }, 3000);
+    }
+
+    initializeManagers(startLocal = false) {
+        // Use VRChat's default ports unless overridden
+        const sendPort = 9000;    // to VRChat
+        const receivePort = 9001; // from VRChat
+        const queryPort = this.oscServerInfo.queryPort;
+        const ip = this.oscServerInfo.ip;
+
+        this.config.osc = this.config.osc || {};
+        this.config.osc.local = {
+            sendPort,
+            receivePort,
+            queryPort,
+            ip
+        };
+
         this.oscManager = new OSCManager(this.config);
-        this.oscQueryManager = new OSCQueryManager(this.config);
         this.relayManager = new RelayManager(this.config);
 
-        this.setupManagers();
+        this.setupManagers(startLocal);
     }
 
-    async setupManagers() {
-        await this.oscManager.createReceiver(this.config.osc.local.receivePort);
-        await this.oscManager.createSender(this.config.osc.local.sendPort);
-        await this.oscQueryManager.start();
+    async setupManagers(startLocal) {
+        if (startLocal) {
+            // Listen for OSC from VRChat on 9001
+            await this.oscManager.createReceiver(this.config.osc.local.receivePort);
+            // Send OSC to VRChat on 9000
+            await this.oscManager.createSender(this.config.osc.local.sendPort);
+
+            // Start OSCQueryServer, advertise OSC_PORT as 9001 (the receive port)
+            this.oscQueryServer = new OSCQueryServer({
+                oscPort: this.config.osc.local.receivePort, // <-- VRChat will see this as the port to send to
+                httpPort: this.config.osc.local.queryPort,
+                serviceName: "OSCRelayClient"
+            });
+            this.oscQueryServer.addMethod("/status", {
+                description: "Client status string",
+                access: OSCQAccess.READONLY,
+                arguments: [
+                    { type: OSCTypeSimple.STRING }
+                ]
+            });
+            this.oscQueryServer.setValue("/status", 0, this.status);
+            await this.oscQueryServer.start();
+            console.log(`[Client] OSCQueryServer started on port ${this.config.osc.local.queryPort}`);
+        }
+
+        this.broadcastStatus("waiting for input");
+
         this.oscManager.onMessage((msg) => {
             const shouldLog = this.ProcessMessage(msg, 'console');
             const shouldTransmit = this.ProcessMessage(msg, 'transmission');
-            
             if (shouldTransmit && !msg.relayed) {
                 this.relayManager.handleClientMessage({
                     type: 'osc_tunnel',
                     userId: this.userId,
                     relayed: true,
                     ...msg
-                }); 
+                });
             }
             return shouldLog;
         });
@@ -64,6 +127,7 @@ class OSCRelayClient {
         this.relayManager.messageHandlers.add((message) => {
             if (message.type === 'osc_tunnel' && !message.relayed) {
                 console.log(`[Client] Received relay message from ${message.userId}: ${message.address}`);
+                // Send to VRChat (port 9000)
                 this.oscManager.send(
                     this.config.osc.local.sendPort,
                     message.address,
@@ -73,165 +137,22 @@ class OSCRelayClient {
         });
     }
 
-    OSCReceiver() {
-        const createServer = (port) => {
-            try {
-                const server = new osc.Server(port, this.config.osc.local.ip);
-                
-                server.on('listening', () => {
-                    console.log(`[Client] Listening for OSC on port ${port}`);
-                    this.vrchatReceiver = server;
-                    this.config.osc.local.receivePort = port;
-                    this.saveConfig();
-                });
-
-                server.on('error', (err) => {
-                    console.error('[Client] OSC server error:', err);
-                });
-
-                server.on('message', (msg, rinfo) => {
-                    const [address, ...args] = msg;
-                    if (this.ProcessMessage({ address })) {
-                        console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC:`, address, args);
-                        
-                        if (this.connected) {
-                            this.ws.send(JSON.stringify({
-                                type: 'osc_tunnel',
-                                address,
-                                args,
-                                source: rinfo.address,
-                                userId: this.userId
-                            }));
-                        }
-                    }
-                });
-
-            } catch (err) {
-                console.error('[Client] Failed to create OSC server:', err);
-            }
-        };
-
-        createServer(this.config.osc.local.receivePort);
-    }
-
-    startOSCQuery() {
-        const tryPort = (port) => {
-            try {
-                this.oscQueryServer = http.createServer(this.handleOSCQuery.bind(this));
-                
-                this.oscQueryServer.on('error', (err) => {
-                    if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
-                        console.log(`[Client] Query port ${port} in use, trying next port...`);
-                        tryPort(port + 1);
-                    } else {
-                        console.warn('[Client] OSCQuery server error:', err.message);
-                    }
-                });
-
-                this.oscQueryServer.listen(port, '127.0.0.1', () => {                       
-                    console.log(`[Client] OSCQuery server listening on port ${port}`);
-                    this.config.osc.local.queryPort = port;
-                    this.saveConfig();          
-                });
-            } catch (err) {
-                if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
-                    tryPort(port + 1);              
-                } else {
-                    console.warn('[Client] Could not start OSCQuery server:', err.message);
-                }
-            }
-        };
-
-        tryPort(this.queryPort);
-    }
-
-    handleOSCQuery(req, res) {
-        const oscQueryResponse = {
-            DESCRIPTION: "OSC Relay Client",
-            HOST_INFO: {
-                NAME: "OSCRelay",
-                OSC_PORT: this.vrchatSendPort,                  
-                OSC_TRANSPORT: "UDP",
-                OSC_IP: "127.0.0.1"
-            },
-            EXTENSIONS: {
-                ACCESS: true,
-                VALUE: true,
-                TYPE: true,
-                RANGE: true
-            }
-        };
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(oscQueryResponse));
-    }
-
-    async discoverVRChatParameters() {
-        try {
-            console.log('[Client] Discovering VRChat parameters...');
-            const response = await fetch('http://127.0.0.1:9000/avatar/parameters');
-            const parameters = await response.json();
-            
-            for (const [address, data] of Object.entries(parameters)) {
-                this.parameters.set(address, {
-                    value: data.value,
-                    type: data.type,
-                    access: data.access
-                });
-            }
-
-            console.log(`[Client] Discovered ${this.parameters.size} parameters`);
-            this.setupParameterListeners();
-        } catch (err) {
-            console.warn('[Client] VRChat parameter discovery failed:', err.message);
-            setTimeout(() => this.discoverVRChatParameters(), 5000);
+    broadcastStatus(status) {
+        this.status = status;
+        // Update OSCQueryServer /status endpoint if running
+        if (this.oscQueryServer) {
+            this.oscQueryServer.setValue("/status", 0, status);
         }
-    }
-
-    setupParameterListeners() {
-        this.parameters.forEach((data, address) => {
-            const accessType = data.access || 'readwrite';
-            if (accessType.includes('read')) {
-                this.vrchatReceiver.on(address, (value) => {
-                    this.handleParameterUpdate(address, value);
-                });
-            }
-        });
-    }
-
-    handleParameterUpdate(address, value) {
-        if (!this.parameters.has(address)) {
-            console.log(`[Client] New parameter discovered: ${address}`);
-        }
-        this.parameters.set(address, { value, type: typeof value });
-        
-        if (!this.config.relay.user.id) {
-            const randomId = Math.random().toString(36).substring(2, 10);
-            this.config.relay.user.id = randomId;
-            this.saveConfig();
-        }
-
-        this.userId = this.config.relay.user.name || `default-${this.config.relay.user.id}`;
-        console.log(`[Client] User ID: ${this.userId}`);
-    }
-
-    saveConfig() {
-        try {
-            fs.writeFileSync('./Client-Config.yml', yaml.stringify(this.config));
-        } catch (err) {
-            console.error('[Client] Failed to save config:', err);
+        if (this.config?.logging?.console) {
+            console.log(`[Client] Status broadcast: ${status}`);
         }
     }
 
     ProcessMessage(message, type = 'transmission') {
         if (!message || !message.address) return false;
-
-        // Check both console and transmission blacklists if we're checking console
         if (type === 'console') {
             const consoleBlacklist = this.config.filters.blacklist.console || [];
             const transmissionBlacklist = this.config.filters.blacklist.transmission || [];
-            
-            // If message is in either blacklist, don't log it
             for (const pattern of [...consoleBlacklist, ...transmissionBlacklist]) {
                 try {
                     if (new RegExp(pattern.replace('*', '.*')).test(message.address)) {
@@ -242,7 +163,6 @@ class OSCRelayClient {
                 }
             }
         } else {
-            // Just check transmission blacklist for normal processing
             const blacklist = this.config.filters.blacklist[type] || [];
             for (const pattern of blacklist) {
                 try {
@@ -254,7 +174,6 @@ class OSCRelayClient {
                 }
             }
         }
-        
         return true;
     }
 
@@ -270,10 +189,12 @@ class OSCRelayClient {
                 } else if (key.name === 't') {
                     const testValue = Math.random();
                     console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
+                    // Send to VRChat (port 9000)
                     this.oscManager.send(this.config.osc.local.sendPort, '/avatar/change', testValue);
                 } else if (key.name === 'r') {
                     const testValue = Math.floor(Math.random() * 100);
                     console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
+                    // Send to VRChat (port 9000)
                     this.oscManager.send(this.config.osc.local.sendPort, '/avatar/change', testValue);
                 }
             }
@@ -287,15 +208,24 @@ class OSCRelayClient {
 
 if (require.main === module) {
     const client = new OSCRelayClient();
+    client.setupKeyboardControls();
     console.log('[Client] Starting connection process...');
-    client.relayManager.connect().then(() => {
-        console.log('[Client] Connection established, subscribing to OSC');
-        client.relayManager.subscribeToOSC(); 
-    }).catch(err => {
-        console.error('[Client] Fatal connection error:', err.message);
-        console.error('[Client] Shutting down...');
-        process.exit(1);
-    });
+    // Wait for relayManager to be initialized after discovery
+    const waitForRelay = () => {
+        if (!client.relayManager) {
+            setTimeout(waitForRelay, 100);
+            return;
+        }
+        client.relayManager.connect().then(() => {
+            console.log('[Client] Connection established, subscribing to OSC');
+            client.relayManager.subscribeToOSC();
+        }).catch(err => {
+            console.error('[Client] Fatal connection error:', err.message);
+            console.error('[Client] Shutting down...');
+            process.exit(1);
+        });
+    };
+    waitForRelay();
 
     process.on('unhandledRejection', (reason, promise) => {
         console.error('[Client] Unhandled Rejection at:', promise);

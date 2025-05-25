@@ -8,30 +8,32 @@ class OSCManager {
         this.messageHandlers = new Set();
 
         if (config?.osc?.local?.sendPort) {
-            this.createSender(config.osc.local.sendPort);
+            this.createSender(config.osc.local.sendPort, config.osc.local.ip || '127.0.0.1');
         }
     }
 
-    createReceiver(port) {
+    createReceiver(port, host = this.config?.osc?.local?.ip || '127.0.0.1') {
         return new Promise((resolve, reject) => {
             try {
-                const server = new osc.Server(port, '127.0.0.1');
+                const server = new osc.Server(port, host);
                 server.on('listening', () => {
                     this.receivers.set(port, server);
-                    console.log(`[Client] OSC receiver listening on port ${port}`);
+                    console.log(`[Client] OSC receiver listening on ${host}:${port}`);
                     resolve(port);
                 });
                 server.on('message', this.handleMessage.bind(this));
-                server.on('error', reject);
+                server.on('error', (err) => {
+                    reject(err);
+                });
             } catch (err) {
                 reject(err);
             }
         });
     }
 
-    createSender(port) {
+    createSender(port, host = this.config?.osc?.local?.ip || '127.0.0.1') {
         try {
-            const client = new osc.Client('127.0.0.1', port);
+            const client = new osc.Client(host, port);
             this.senders.set(port, client);
             return client;
         } catch (err) {
@@ -65,6 +67,10 @@ class OSCManager {
     }
 
     send(port, address, ...args) {
+        if (!port) {
+            console.error('[Client] OSC send error: No port specified');
+            return;
+        }
         let sender = this.senders.get(port);
         if (!sender) {
             sender = this.createSender(port);
