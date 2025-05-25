@@ -1,6 +1,6 @@
 const yaml = require('yaml');
 const fs = require('fs');
-const logger = require('../logger');
+const logger = require('./managers/logger');
 const OSCManager = require('./managers/OSCManager');
 const RelayManager = require('./managers/RelayManager');
 const { OSCQueryDiscovery, OSCQueryServer, OSCQAccess, OSCTypeSimple } = require('oscquery');
