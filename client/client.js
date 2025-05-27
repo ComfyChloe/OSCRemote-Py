@@ -179,22 +179,27 @@ class OSCRelayClient {
 
         process.stdin.on('keypress', (str, key) => {
             if (key.sequence === str) {
-                if (key.ctrl && key.name === 'c') {
+                if (key.ctrl && key.name === 'c') {                             
                     process.exit();
                 } else if (key.name === 't') {
-                    const testValue = Math.random() * 100;
-                    console.log(`[Client] Sending test message: /foo ${testValue}`);
+                    const testValue = (Math.random() * 2) - 1;
+                    console.log(`[Client] Sending test float: /Float/Test ${testValue}`);
                     this.oscManager.send(this.config.osc.local.sendPort, '/foo', testValue);
                 } else if (key.name === 'r') {
-                    const testValue = Math.floor(Math.random() * 100);
-                    console.log(`[Client] Sending test message: /avatar/change/${testValue}`);
+                    const testValue = Math.round(Math.random());
+                    console.log(`[Client] Sending test int: /Init/Test ${testValue}`);
                     this.oscManager.send(this.config.osc.local.sendPort, '/avatar/change', testValue);
+                } else if (key.name === 'b') {
+                    const testValue = Math.random() > 0.5 ? 255 : 0;
+                    console.log(`[Client] Sending test bool: /Bool/Test ${testValue}`);
+                    this.oscManager.send(this.config.osc.local.sendPort, '/Bool/Test', testValue);
                 }
             }
         });
         console.log('[Client] Keyboard controls enabled:');
-        console.log('  Press "t" to send a random float test message to /foo');
-        console.log('  Press "r" to send a random integer test message to /avatar/change');
+        console.log('  Press "t" to send a random float (-1 to 1) to /foo');
+        console.log('  Press "r" to send a random int (0 or 1) to /avatar/change');
+        console.log('  Press "b" to send a random bool (0 or 255) to /avatar/parameters/IsLocalPlayer');
         console.log('  Press Ctrl+C to exit');
     }
 }
