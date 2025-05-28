@@ -44,6 +44,8 @@ filters:
       - /avatar/parameters/AvatarProp/RightHand_dog
       - /avatar/parameters/AvatarProp/LeftHand_dog
       - /avatar/parameters/HaloSys
+      - /avatar/parameters/VF54_SyncDataNum
+      - /avatar/parameters/VF54_SyncPointer
     transmission:
       - /avatar/parameters/Voice
       - /avatar/parameters/VelocityX
@@ -74,6 +76,8 @@ filters:
       - /avatar/parameters/AvatarProp/RightHand_dog
       - /avatar/parameters/AvatarProp/LeftHand_dog
       - /avatar/parameters/HaloSys*
+      - /avatar/parameters/VF54_SyncDataNum
+      - /avatar/parameters/VF54_SyncPointer
 logging:
   console: true
   file: true

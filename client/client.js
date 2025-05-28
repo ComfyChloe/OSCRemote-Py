@@ -3,18 +3,17 @@ const fs = require('fs');
 const logger = require('./managers/logger');
 const OSCManager = require('./managers/OSCManager');
 const RelayManager = require('./managers/RelayManager');
-const { OSCQueryServer, OSCQAccess, OSCTypeSimple } = require('oscquery');
+const OSCQueryManager = require('./managers/OSCQueryManager');
 
 class OSCRelayClient {
     constructor() {
         this.loadConfig();
         this.ensureUserId();
-        this.parameters = new Map();
         this.status = "waiting for input";
-        this.oscQueryServer = null;
         this.oscManager = null;
         this.relayManager = null;
-        this.setupOSCQueryServer();
+        this.oscQueryManager = null;
+        this.setup();
     }
 
     loadConfig() {
@@ -40,32 +39,19 @@ class OSCRelayClient {
         }
     }
 
-    async setupOSCQueryServer() {
-        const receivePort = this.config.osc.local.receivePort || 9001;
-        const queryPort = this.config.osc.local.queryPort || 36455;
+    async setup() {
         const ip = this.config.osc.local.ip || '127.0.0.1';
-
+        
         this.oscManager = new OSCManager(this.config);
         await this.oscManager.createSender(this.config.osc.local.sendPort, ip);
 
-        this.oscQueryServer = new OSCQueryServer({
-            oscPort: receivePort,
-            httpPort: queryPort,
-            serviceName: "Chloes-OSCRelay",
-            oscTransport: "UDP"
-        });
-
-        const osc = require('node-osc');
-        const server = new osc.Server(receivePort, ip);
-        server.on('message', (msg, rinfo) => {
-            const [address, ...args] = msg;
-            const message = { address, args, source: rinfo.address, port: rinfo.port };
-
+        this.oscQueryManager = new OSCQueryManager(this.config);
+        this.oscQueryManager.onMessage((message, rinfo) => {
             const shouldLog = this.ProcessMessage(message, 'console');
             const shouldTransmit = this.ProcessMessage(message, 'transmission');
 
             if (shouldLog && this.config?.logging?.osc?.incoming) {
-                console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC: ${address} | [${args.join(', ')}]`);
+                console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC: ${message.address} | [${message.args.join(', ')}]`);
             }
 
             if (shouldTransmit) {
@@ -78,31 +64,7 @@ class OSCRelayClient {
             }
         });
 
-        // Add OSC endpoints that VRChat can discover
-        this.oscQueryServer.addMethod("/avatar/parameters/*", {
-            description: "Avatar parameter changes",
-            access: OSCQAccess.READWRITE,
-            arguments: [
-                { 
-                    type: OSCTypeSimple.FLOAT,
-                    range: { min: 0, max: 1 }
-                }
-            ]
-        });
-
-        // Add status endpoint
-        this.oscQueryServer.addMethod("/status", {
-            description: "Client status string",
-            access: OSCQAccess.READONLY,
-            arguments: [
-                { type: OSCTypeSimple.STRING }
-            ]
-        });
-        this.oscQueryServer.setValue("/status", 0, this.status);
-
-        await this.oscQueryServer.start();
-        console.log(`[Client] OSCQuery server started on port ${queryPort}, listening for OSC on ${receivePort}`);
-
+        await this.oscQueryManager.start();
         this.setupRelay();
         this.broadcastStatus("waiting for input");
         this.setupKeyboardControls();
@@ -148,9 +110,7 @@ class OSCRelayClient {
 
     broadcastStatus(status) {
         this.status = status;
-        if (this.oscQueryServer) {
-            this.oscQueryServer.setValue("/status", 0, status);
-        }
+        this.oscQueryManager?.setStatus(status);
         if (this.config?.logging?.console) {
             console.log(`[Client] Status broadcast: ${status}`);
         }
