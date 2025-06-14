@@ -51,10 +51,6 @@ class OSCRelayClient {
                 const shouldLog = this.ProcessMessage(message, 'console');
                 const shouldTransmit = this.ProcessMessage(message, 'transmission');
 
-                if (shouldLog && this.config?.logging?.osc?.incoming) {
-                    console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC: ${message.address} | [${message.args.join(', ')}]`);
-                }
-
                 if (shouldTransmit) {
                     this.relayManager?.handleClientMessage({
                         type: 'osc_tunnel',
@@ -63,6 +59,8 @@ class OSCRelayClient {
                         ...message
                     });
                 }
+                
+                return shouldLog;
             });
 
             await this.oscQueryManager.start();
@@ -82,6 +80,7 @@ class OSCRelayClient {
         this.oscManager.onMessage((msg) => {
             const shouldLog = this.ProcessMessage(msg, 'console');
             const shouldTransmit = this.ProcessMessage(msg, 'transmission');
+            
             if (shouldTransmit && !msg.relayed) {
                 this.relayManager.handleClientMessage({
                     type: 'osc_tunnel',
@@ -90,7 +89,8 @@ class OSCRelayClient {
                     ...msg
                 });
             }
-            return shouldLog;
+            
+            return shouldLog; 
         });
 
         this.relayManager.messageHandlers.add((message) => {
@@ -151,23 +151,37 @@ class OSCRelayClient {
                     process.exit();
                 } else if (key.name === 't') {
                     const testValue = (Math.random() * 2) - 1;
-                    console.log(`[Client] Sending test float: /Float/Test ${testValue}`);
-                    this.oscManager.send(this.config.osc.local.sendPort, '/foo', testValue);
+                    console.log(`[Client] Sending test float: /avatar/parameters/Float ${testValue}`);
+                    this.oscManager.send(this.config.osc.local.sendPort, '/avatar/parameters/Float', testValue);
                 } else if (key.name === 'r') {
                     const testValue = Math.round(Math.random());
-                    console.log(`[Client] Sending test int: /Init/Test ${testValue}`);
-                    this.oscManager.send(this.config.osc.local.sendPort, '/avatar/change', testValue);
+                    console.log(`[Client] Sending test int: /avatar/parameters/Int ${testValue}`);
+                    this.oscManager.send(this.config.osc.local.sendPort, '/avatar/parameters/Int', testValue);
                 } else if (key.name === 'b') {
-                    const testValue = Math.random() > 0.5 ? 255 : 0;
-                    console.log(`[Client] Sending test bool: /Bool/Test ${testValue}`);
-                    this.oscManager.send(this.config.osc.local.sendPort, '/Bool/Test', testValue);
+                    const testValue = Math.random() > 0.5 ? 1 : 0;
+                    console.log(`[Client] Sending test bool: /avatar/parameters/IsLocal ${testValue}`);
+                    this.oscManager.send(this.config.osc.local.sendPort, '/avatar/parameters/IsLocal', testValue);
+                } else if (key.name === 'v') {
+                    // Test VRChat specific parameters that should trigger responses
+                    console.log(`[Client] Sending VRChat parameter test`);
+                    this.oscManager.send(this.config.osc.local.sendPort, '/avatar/parameters/VelocityX', 0.5);
+                    this.oscManager.send(this.config.osc.local.sendPort, '/avatar/parameters/MuteSelf', 0);
+                } else if (key.name === 'd') {
+                    // Output debug info about current configuration
+                    console.log(`[Client] Debug Info:`);
+                    console.log(`  - OSC Send Port: ${this.config.osc.local.sendPort}`);
+                    console.log(`  - OSC Receive Port: ${this.config.osc.local.receivePort}`);
+                    console.log(`  - OSC Query Port: ${this.config.osc.local.queryPort}`);
+                    console.log(`  - Local IP: ${this.config.osc.local.ip}`);
                 }
             }
         });
         console.log('[Client] Keyboard controls enabled:');
-        console.log('  Press "t" to send a random float (-1 to 1) to /foo');
-        console.log('  Press "r" to send a random int (0 or 1) to /avatar/change');
-        console.log('  Press "b" to send a random bool (0 or 255) to /avatar/parameters/IsLocalPlayer');
+        console.log('  Press "t" to send a random float (-1 to 1) to /avatar/parameters/Float');
+        console.log('  Press "r" to send a random int (0 or 1) to /avatar/parameters/Int');
+        console.log('  Press "b" to send a random bool (0 or 1) to /avatar/parameters/IsLocal');
+        console.log('  Press "v" to send VRChat-specific parameter tests');
+        console.log('  Press "d" to display debug information');
         console.log('  Press Ctrl+C to exit');
     }
 

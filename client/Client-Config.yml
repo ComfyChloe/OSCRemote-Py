@@ -46,6 +46,7 @@ filters:
       - /avatar/parameters/HaloSys
       - /avatar/parameters/VF54_SyncDataNum
       - /avatar/parameters/VF54_SyncPointer
+      - /avatar/parameters/0_Angle
     transmission:
       - /avatar/parameters/Voice
       - /avatar/parameters/VelocityX
@@ -78,6 +79,7 @@ filters:
       - /avatar/parameters/HaloSys*
       - /avatar/parameters/VF54_SyncDataNum
       - /avatar/parameters/VF54_SyncPointer
+      - /avatar/parameters/0_Angle
 logging:
   console: true
   file: true
