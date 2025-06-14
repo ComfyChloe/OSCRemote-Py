@@ -45,26 +45,32 @@ class OSCRelayClient {
         this.oscManager = new OSCManager(this.config);
         await this.oscManager.createSender(this.config.osc.local.sendPort, ip);
 
-        this.oscQueryManager = new OSCQueryManager(this.config);
-        this.oscQueryManager.onMessage((message, rinfo) => {
-            const shouldLog = this.ProcessMessage(message, 'console');
-            const shouldTransmit = this.ProcessMessage(message, 'transmission');
+        try {
+            this.oscQueryManager = new OSCQueryManager(this.config);
+            this.oscQueryManager.onMessage((message, rinfo) => {
+                const shouldLog = this.ProcessMessage(message, 'console');
+                const shouldTransmit = this.ProcessMessage(message, 'transmission');
 
-            if (shouldLog && this.config?.logging?.osc?.incoming) {
-                console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC: ${message.address} | [${message.args.join(', ')}]`);
-            }
+                if (shouldLog && this.config?.logging?.osc?.incoming) {
+                    console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC: ${message.address} | [${message.args.join(', ')}]`);
+                }
 
-            if (shouldTransmit) {
-                this.relayManager?.handleClientMessage({
-                    type: 'osc_tunnel',
-                    userId: this.config.relay.user.id,
-                    relayed: true,
-                    ...message
-                });
-            }
-        });
+                if (shouldTransmit) {
+                    this.relayManager?.handleClientMessage({
+                        type: 'osc_tunnel',
+                        userId: this.config.relay.user.id,
+                        relayed: true,
+                        ...message
+                    });
+                }
+            });
 
-        await this.oscQueryManager.start();
+            await this.oscQueryManager.start();
+        } catch (error) {
+            console.error(`[Client] OSCQuery initialization failed: ${error.message}`);
+            console.log(`[Client] Continuing without OSCQuery support...`);
+        }
+
         this.setupRelay();
         this.broadcastStatus("waiting for input");
         this.setupKeyboardControls();
@@ -140,6 +146,8 @@ class OSCRelayClient {
         process.stdin.on('keypress', (str, key) => {
             if (key.sequence === str) {
                 if (key.ctrl && key.name === 'c') {                             
+                    console.log('[Client] Shutting down...');
+                    this.cleanup();
                     process.exit();
                 } else if (key.name === 't') {
                     const testValue = (Math.random() * 2) - 1;
@@ -162,11 +170,38 @@ class OSCRelayClient {
         console.log('  Press "b" to send a random bool (0 or 255) to /avatar/parameters/IsLocalPlayer');
         console.log('  Press Ctrl+C to exit');
     }
+
+    cleanup() {
+        console.log('[Client] Running cleanup...');
+        
+        if (this.oscQueryManager) {
+            try {
+                this.oscQueryManager.close();
+            } catch (error) {
+                console.error(`[Client] Error during OSCQueryManager cleanup: ${error.message}`);
+            }
+        }
+        
+        console.log('[Client] Cleanup completed');
+    }
 }
 
 if (require.main === module) {
-    new OSCRelayClient();
+    const client = new OSCRelayClient();
     console.log('[Client] Starting connection process...');
+    
+    process.on('SIGINT', () => {
+        console.log('[Client] Received SIGINT, shutting down gracefully...');
+        client.cleanup();
+        process.exit(0);
+    });
+    
+    process.on('SIGTERM', () => {
+        console.log('[Client] Received SIGTERM, shutting down gracefully...');
+        client.cleanup();
+        process.exit(0);
+    });
+    
     process.on('unhandledRejection', (reason, promise) => {
         console.error('[Client] Unhandled Rejection at:', promise);
         console.error('[Client] Reason:', reason);
