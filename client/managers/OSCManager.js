@@ -3,36 +3,53 @@ const osc = require('node-osc');
 class OSCManager {
     constructor(config) {
         this.config = config;
-        this.receivers = new Map();
         this.senders = new Map();
         this.messageHandlers = new Set();
+        this.oscServer = null;
+        this.setupOSCServer();
+    }
 
-        if (config?.osc?.local?.sendPort) {
-            this.createSender(config.osc.local.sendPort);
+    setupOSCServer() {
+        try {
+            const port = this.config.osc.local.receivePort || 9001;
+            const ip = this.config.osc.local.ip || '127.0.0.1';
+            
+            console.log(`[Client] Setting up OSC server on port ${port}`);
+            this.oscServer = new osc.Server(port, ip);
+            
+            this.oscServer.on('message', (msg, rinfo) => {
+                const [address, ...args] = msg;
+                const message = { address, args, source: rinfo.address };
+                
+                // Let handlers determine if this should be logged based on blacklist
+                let shouldLog = true;
+                this.messageHandlers.forEach(handler => {
+                    // If any handler returns false, don't log
+                    if (handler(message) === false) {
+                        shouldLog = false;
+                    }
+                });
+                
+                // Only log if not blacklisted
+                if (shouldLog && this.config?.logging?.osc?.incoming) {
+                    console.log(`[Client] OSC received from ${rinfo.address}:${rinfo.port}: ${address} [${args.join(', ')}]`);
+                }
+            });
+            
+            console.log(`[Client] OSC server listening on ${ip}:${port}`);
+        } catch (error) {
+            console.error(`[Client] Failed to create OSC server: ${error.message}`);
+            if (error.code === 'EADDRINUSE') {
+                console.error(`[Client] Port ${this.config.osc.local.receivePort} is already in use`);
+            }
         }
     }
 
-    createReceiver(port) {
-        return new Promise((resolve, reject) => {
-            try {
-                const server = new osc.Server(port, '127.0.0.1');
-                server.on('listening', () => {
-                    this.receivers.set(port, server);
-                    console.log(`[Client] OSC receiver listening on port ${port}`);
-                    resolve(port);
-                });
-                server.on('message', this.handleMessage.bind(this));
-                server.on('error', reject);
-            } catch (err) {
-                reject(err);
-            }
-        });
-    }
-
-    createSender(port) {
+    createSender(port, host = this.config?.osc?.local?.ip || '127.0.0.1') {
         try {
-            const client = new osc.Client('127.0.0.1', port);
+            const client = new osc.Client(host, port);
             this.senders.set(port, client);
+            console.log(`[Client] Created OSC sender to ${host}:${port}`);
             return client;
         } catch (err) {
             console.error('[Client] Failed to create OSC sender:', err);
@@ -40,40 +57,70 @@ class OSCManager {
         }
     }
 
-    handleMessage(msg, rinfo) {
-        const [address, ...args] = msg;
-        const message = { address, args, source: rinfo.address, port: rinfo.port };
+    send(port, address, ...args) {
+        if (!port) {
+            console.error('[Client] OSC send error: No port specified');
+            return;
+        }
+        let sender = this.senders.get(port);
+        if (!sender) {
+            sender = this.createSender(port);
+        }
+        if (sender) {
+            const processedArgs = args.map(arg => {
+                if (typeof arg === 'boolean') {
+                    return arg ? 1 : 0;
+                }
+                return arg;
+            });
+            
+            const shouldLog = this.shouldLogMessage({ address, args: processedArgs });
+            
+            if (shouldLog && this.config?.logging?.osc?.outgoing === true) {
+                console.log(`[Client] | Sending OSC to port ${port}: ${address} | [${processedArgs.join(', ')}]`);
+            }
+            sender.send(address, ...processedArgs);
+        }
+    }
+    
+    shouldLogMessage(message) {
+        if (!this.config?.filters?.blacklist?.console) {
+            return true;
+        }
         
-        let shouldProcess = true;
-        let shouldLog = true;
-        
-        this.messageHandlers.forEach(handler => {
-            const result = handler(message);
-            if (result === false) {
-                shouldProcess = false;
-                shouldLog = false;
+        const blacklist = this.config.filters.blacklist.console || [];
+        return !blacklist.some(pattern => {
+            try {
+                const regex = new RegExp(pattern.replace('*', '.*'));
+                return regex.test(message.address);
+            } catch (err) {
+                console.warn(`[Client] Invalid blacklist pattern: ${pattern}`);
+                return false;
             }
         });
-
-        if (shouldLog && this.config?.logging?.osc?.incoming && shouldProcess) {
-            console.log(`[Client] | Local IP: ${rinfo.address} | Received OSC: ${address} | [${args.join(', ')}]`);
-        }
     }
 
     onMessage(handler) {
         this.messageHandlers.add(handler);
     }
 
-    send(port, address, ...args) {
-        let sender = this.senders.get(port);
-        if (!sender) {
-            sender = this.createSender(port);
-        }
-        if (sender) {
-            if (this.config?.logging?.osc?.outgoing) {
-                console.log(`[Client] | Sending OSC to port ${port}: ${address} | [${args.join(', ')}]`);
+    close() {
+        if (this.oscServer) {
+            try {
+                this.oscServer.close();
+                console.log('[Client] OSC server closed');
+            } catch (error) {
+                console.error(`[Client] Error closing OSC server: ${error.message}`);
             }
-            sender.send(address, ...args);
+        }
+        
+        for (const [port, sender] of this.senders.entries()) {
+            try {
+                sender.close();
+                console.log(`[Client] OSC sender to port ${port} closed`);
+            } catch (error) {
+                console.error(`[Client] Error closing OSC sender to port ${port}: ${error.message}`);
+            }
         }
     }
 }
