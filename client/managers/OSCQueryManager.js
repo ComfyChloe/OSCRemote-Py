@@ -1,5 +1,6 @@
-const { OSCQueryServer, OSCQAccess, OSCTypeSimple } = require('oscquery');
+const { OSCQueryServer, OSCQAccess, OSCTypeSimple, OSCQueryDiscovery } = require('oscquery');
 const osc = require('node-osc');
+const logger = require('./logger');
 
 class OSCQueryManager {
     constructor(config) {
@@ -7,91 +8,143 @@ class OSCQueryManager {
         this.status = "waiting for input";
         this.parameters = new Map();
         this.messageHandlers = new Set();
-        this.oscServer = null;
+        this.oscClient = null;
+        this.discoveredServices = [];
+        this.discovery = null;
+        this.oscQueryServer = null;
+        this.oscSender = null;
     }
 
     async start() {
         try {
-            const receivePort = this.config.osc.local.receivePort || 9001;
-            const queryPort = this.config.osc.local.queryPort || 9012;
+            // Get configuration values
+            const receivePort = this.config.osc.local.receivePort || 9037;
+            const queryPort = this.config.osc.local.queryPort || 34812;
+            const sendPort = this.config.osc.local.sendPort || 9000;
             const ip = this.config.osc.local.ip || '127.0.0.1';
+            
+            logger.info('Client', `Setting up OSCQuery with HTTP on port ${queryPort} and advertising OSC on port ${receivePort}`);
 
-            console.log(`[Client] Setting up OSCQuery with HTTP on port ${queryPort} and OSC on port ${receivePort}`);
-
+            // Create the OSCQueryServer with our service information
             this.oscQueryServer = new OSCQueryServer({
-                oscPort: receivePort,
+                // The HTTP server will run on this port
                 httpPort: queryPort,
+                // Tell clients our OSC server listens on this port
+                oscPort: receivePort,
+                // Give our service a name for discovery
                 serviceName: "Chloes-OSCRelay",
+                // Use UDP for OSC communication
                 oscTransport: "UDP"
             });
 
-            const oscServerPort = receivePort + 100; 
-            this.createOSCServer(oscServerPort, ip);
+            // Create OSC client to send messages to VRChat
+            this.oscSender = new osc.Client('127.0.0.1', sendPort);
+            logger.info('Client', `Created OSC client to send to VRChat on port ${sendPort}`);
 
-            this.addVRChatEndpoints();
+            // Register our methods in the OSCQuery namespace
+            this.addEndpoints();
 
-            this.oscQueryServer.addMethod("/status", {
-                description: "Client status string",
-                access: OSCQAccess.READONLY,
-                arguments: [{ type: OSCTypeSimple.STRING }]
-            });
-            this.oscQueryServer.setValue("/status", 0, this.status);
-
-            // Add VRChat discovery endpoint
-            this.oscQueryServer.addMethod("/vrchat/api/1/config/osc", {
-                description: "VRChat OSC configuration request",
-                access: OSCQAccess.READWRITE,
-                arguments: [{ type: OSCTypeSimple.INT }]
-            });
-
+            // Start the HTTP server for OSCQuery
             await this.oscQueryServer.start();
-            console.log(`[Client] OSCQuery server started successfully`);
-            console.log(`[Client] HTTP discovery available on port ${queryPort}`);
-            console.log(`[Client] OSC messages should be sent to port ${receivePort}`);
-            console.log(`[Client] Additional OSC server listening on port ${oscServerPort}`);
+            logger.info('Client', `OSCQuery server started successfully on HTTP port ${queryPort}`);
+            logger.info('Client', `Advertising OSC service on port ${receivePort}`);
             
-            // Initialize connection with VRChat
-            this.sendInitialPingToVRChat();
+            // Start OSCQuery discovery to find other services (like VRChat)
+            this.startDiscovery();
         } catch (error) {
-            console.error(`[Client] Failed to start OSCQuery server: ${error.message}`);
-            if (error.code === 'EACCES') {
-                console.error(`[Client] Permission denied for port binding. Port may already be in use.`);
-                console.error(`[Client] Try changing the receivePort in your configuration or running with admin privileges.`);
-            }
+            logger.error('Client', `Failed to start OSCQuery server: ${error.message}`);
             throw error;
         }
     }
 
-    createOSCServer(port, ip) {
+    startDiscovery() {
         try {
-            console.log(`[Client] Setting up additional OSC server on port ${port}`);
-            this.oscServer = new osc.Server(port, ip);
-            this.oscServer.on('message', (msg, rinfo) => {
-                this.handleMessage(msg, rinfo);
+            logger.info('Client', 'Starting OSCQuery discovery service');
+            this.discovery = new OSCQueryDiscovery();
+            
+            this.discovery.on('up', (service) => {
+                // Only log once to avoid duplication - the client will handle detailed logging
+                logger.debug('Client', `OSCQuery service discovered: ${service.name || 'Unknown'}`);
+                
+                this.discoveredServices.push(service);
+                
+                // Notify listeners about the discovered service
+                this.messageHandlers.forEach(handler => {
+                    handler({
+                        type: 'oscquery_discovery',
+                        action: 'up',
+                        service: {
+                            name: service.name,
+                            host: service.host,
+                            port: service.port,
+                            oscPort: service.oscPort
+                        }
+                    });
+                });
+                
+                // If this is VRChat, we can set up to receive from it
+                if (service.name && service.name.toLowerCase().includes('vrchat')) {
+                    logger.info('Client', `VRChat OSCQuery service found at ${service.host}:${service.oscPort}`);
+                    this.setupVRChatConnection(service);
+                }
             });
+            
+            this.discovery.on('down', (service) => {
+                // Only log once - let the client handle detailed logging
+                logger.debug('Client', `OSCQuery service lost: ${service.name || 'Unknown'}`);
+                
+                this.discoveredServices = this.discoveredServices.filter(s => 
+                    !(s.host === service.host && s.port === service.port));
+                
+                // Notify listeners about the lost service
+                this.messageHandlers.forEach(handler => {
+                    handler({
+                        type: 'oscquery_discovery',
+                        action: 'down',
+                        service: {
+                            name: service.name,
+                            host: service.host,
+                            port: service.port
+                        }
+                    });
+                });
+            });
+            
+            this.discovery.start();
+            logger.info('Client', 'OSCQuery discovery started');
         } catch (error) {
-            console.error(`[Client] Failed to create additional OSC server: ${error.message}`);
+            logger.error('Client', `Failed to start OSCQuery discovery: ${error.message}`);
         }
     }
-
-    handleMessage(msg, rinfo) {
-        const [address, ...args] = msg;
-        const message = { address, args, source: rinfo.address, port: rinfo.port };
-        
-        let shouldLog = true;
-        this.messageHandlers.forEach(handler => {
-            const result = handler(message, rinfo);
-            if (result === false) {
-                shouldLog = false;
-            }
-        });
-        
-        if (shouldLog && this.config?.logging?.osc?.incoming) {
-            console.log(`[Client] OSC message received: ${address} from ${rinfo.address}:${rinfo.port} [${args.join(', ')}]`);
+    
+    setupVRChatConnection(service) {
+        try {
+            // VRChat will send OSC messages to our advertised port (receivePort)
+            // We don't need to create an explicit connection to it
+            logger.info('Client', `VRChat will send OSC to our advertised port ${this.config.osc.local.receivePort}`);
+            
+            // Send an initial ping to VRChat to make sure it's working
+            this.sendInitialPingToVRChat();
+        } catch (error) {
+            logger.error('Client', `Error setting up VRChat connection: ${error.message}`);
         }
+    }
+    
+    addEndpoints() {
+        // Add status endpoint
+        this.oscQueryServer.addMethod("/status", {
+            description: "Client status string",
+            access: OSCQAccess.READONLY,
+            arguments: [{ type: OSCTypeSimple.STRING }]
+        });
+        this.oscQueryServer.setValue("/status", 0, this.status);
+        
+        // Add VRChat endpoints
+        this.addVRChatEndpoints();
     }
 
     addVRChatEndpoints() {
+        // Wildcard for all avatar parameters
         this.oscQueryServer.addMethod("/avatar/parameters/*", {
             description: "Avatar parameter changes",
             access: OSCQAccess.READWRITE,
@@ -101,6 +154,7 @@ class OSCQueryManager {
             }]
         });
 
+        // Essential VRChat endpoints
         const essentialEndpoints = [
             { path: "/avatar/change", desc: "Change avatar" },
             { path: "/avatar/parameters/IsLocal", desc: "Is local player" },
@@ -120,13 +174,18 @@ class OSCQueryManager {
                 }]
             });
         });
+        
+        // Add VRChat discovery endpoint
+        this.oscQueryServer.addMethod("/vrchat/api/1/config/osc", {
+            description: "VRChat OSC configuration request",
+            access: OSCQAccess.READWRITE,
+            arguments: [{ type: OSCTypeSimple.INT }]
+        });
     }
 
     sendInitialPingToVRChat() {
         try {
-            const client = new osc.Client('127.0.0.1', 9000);
-            
-            console.log('[Client] Sending initialization pings to VRChat...');
+            logger.info('Client', 'Sending initialization pings to VRChat...');
             
             const pingMessages = [
                 { address: "/avatar/parameters/MuteSelf", value: 0 },
@@ -135,16 +194,46 @@ class OSCQueryManager {
             ];
             
             pingMessages.forEach(msg => {
-                client.send(msg.address, msg.value);
-                console.log(`[Client] Ping: ${msg.address} = ${msg.value}`);
+                if (this.oscSender) {
+                    this.oscSender.send(msg.address, msg.value);
+                    logger.debug('Client', `Ping: ${msg.address} = ${msg.value}`);
+                }
             });
             
-            setTimeout(() => {
-                client.close();
-                console.log('[Client] Initialization sequence completed');
-            }, 1000);
+            logger.info('Client', 'Initialization sequence completed');
         } catch (error) {
-            console.error(`[Client] Failed to send initialization ping: ${error.message}`);
+            logger.error('Client', `Failed to send initialization ping: ${error.message}`);
+        }
+    }
+    
+    stopDiscovery() {
+        if (this.discovery) {
+            try {
+                this.discovery.stop();
+                logger.info('Client', 'OSCQuery discovery stopped');
+            } catch (error) {
+                logger.error('Client', `Error stopping OSCQuery discovery: ${error.message}`);
+            }
+        }
+    }
+    
+    getDiscoveredServices() {
+        if (this.discovery) {
+            return this.discovery.getServices();
+        }
+        return this.discoveredServices;
+    }
+    
+    async queryServiceManually(address, port) {
+        if (this.discovery) {
+            try {
+                const service = await this.discovery.queryNewService(address, port);
+                logger.info('Client', `Manually queried service: ${service.name} at ${service.host}:${service.port}`);
+                return service;
+            } catch (error) {
+                logger.error('Client', `Error querying service manually: ${error.message}`);
+                throw error;
+            }
         }
     }
 
@@ -160,44 +249,42 @@ class OSCQueryManager {
     }
 
     send(address, ...args) {
-        if (this.oscQueryServer) {
+        if (this.oscSender) {
             try {
-                this.oscQueryServer.send(address, ...args);
+                this.oscSender.send(address, ...args);
+                logger.debug('Client', `Sent OSC message: ${address} [${args.join(', ')}]`);
             } catch (error) {
-                console.error(`[Client] Failed to send message via OSCQuery: ${error.message}`);
+                logger.error('Client', `Failed to send OSC message: ${error.message}`);
             }
         }
     }
 
     close() {
-        if (this.oscServer) {
+        // Stop discovery
+        this.stopDiscovery();
+        
+        // Close OSC sender
+        if (this.oscSender) {
             try {
-                this.oscServer.close();
-                console.log('[Client] Additional OSC server closed');
+                this.oscSender.close();
+                logger.info('Client', 'OSC sender closed');
             } catch (error) {
-                console.error(`[Client] Error closing additional OSC server: ${error.message}`);
+                logger.error('Client', `Error closing OSC sender: ${error.message}`);
             }
         }
         
+        // Close OSCQuery server
         if (this.oscQueryServer) {
             try {
                 if (typeof this.oscQueryServer.stop === 'function') {
                     this.oscQueryServer.stop();
-                    console.log('[Client] OSCQuery server stopped');
+                    logger.info('Client', 'OSCQuery server stopped');
                 } 
-                else if (typeof this.oscQueryServer.shutdown === 'function') {
-                    this.oscQueryServer.shutdown();
-                    console.log('[Client] OSCQuery server shutdown');
-                }
-                else if (typeof this.oscQueryServer.dispose === 'function') {
-                    this.oscQueryServer.dispose();
-                    console.log('[Client] OSCQuery server disposed');
-                }
                 else {
-                    console.log('[Client] No shutdown method found for OSCQuery server');
+                    logger.info('Client', 'No direct stop method found for OSCQuery server');
                 }
             } catch (error) {
-                console.error(`[Client] Error closing OSCQuery server: ${error.message}`);
+                logger.error('Client', `Error closing OSCQuery server: ${error.message}`);
             }
         }
     }

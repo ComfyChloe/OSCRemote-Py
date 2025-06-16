@@ -10,8 +10,8 @@ relay:
 osc:
   local:
     sendPort: 9000
-    receivePort: 9001
-    queryPort: 9012
+    receivePort: 9037
+    queryPort: 34812
     ip: 127.0.0.1
 filters:
   blacklist:
@@ -83,6 +83,7 @@ filters:
 logging:
   console: true
   file: true
+  verbose: false 
   osc:
     incoming: true
     outgoing: true

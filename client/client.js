@@ -26,6 +26,11 @@ class OSCRelayClient {
             const file = fs.readFileSync(configPath, 'utf8');
             this.config = yaml.parse(file);
             logger.setLogPath(this.config.logging?.path || 'logs/client');
+            
+            if (this.config.logging?.verbose === false) {
+                logger.setVerbose(false);
+            }
+            
             logger.log('Loaded client configuration', 'CONFIG');
         } catch (err) {
             console.error('Failed to load Client-Config.yml:', err);
@@ -48,6 +53,11 @@ class OSCRelayClient {
         try {
             this.oscQueryManager = new OSCQueryManager(this.config);
             this.oscQueryManager.onMessage((message, rinfo) => {
+                if (message.type === 'oscquery_discovery') {
+                    logger.discovery(message.action, message.service);
+                    return;
+                }
+                
                 const shouldLog = this.ProcessMessage(message, 'console');
                 const shouldTransmit = this.ProcessMessage(message, 'transmission');
 
@@ -64,9 +74,10 @@ class OSCRelayClient {
             });
 
             await this.oscQueryManager.start();
+            logger.info('Client', 'OSCQuery started successfully');
         } catch (error) {
-            console.error(`[Client] OSCQuery initialization failed: ${error.message}`);
-            console.log(`[Client] Continuing without OSCQuery support...`);
+            logger.error('Client', `OSCQuery initialization failed: ${error.message}`);
+            logger.info('Client', 'Continuing without OSCQuery support...');
         }
 
         this.setupRelay();
@@ -95,7 +106,7 @@ class OSCRelayClient {
 
         this.relayManager.messageHandlers.add((message) => {
             if (message.type === 'osc_tunnel' && !message.relayed) {
-                console.log(`[Client] Received relay message from ${message.userId}: ${message.address}`);
+                logger.info('Client', `Received relay message from ${message.userId}: ${message.address}`);
                 this.oscManager.send(
                     this.config.osc.local.sendPort,
                     message.address,
@@ -105,11 +116,11 @@ class OSCRelayClient {
         });
 
         this.relayManager.connect().then(() => {
-            console.log('[Client] Connection established, subscribing to OSC');
+            logger.info('Client', 'Connection established, subscribing to OSC');
             this.relayManager.subscribeToOSC();
         }).catch(err => {
-            console.error('[Client] Fatal connection error:', err.message);
-            console.error('[Client] Shutting down...');
+            logger.error('Client', `Fatal connection error: ${err.message}`);
+            logger.error('Client', 'Shutting down...');
             process.exit(1);
         });
     }
@@ -118,7 +129,7 @@ class OSCRelayClient {
         this.status = status;
         this.oscQueryManager?.setStatus(status);
         if (this.config?.logging?.console) {
-            console.log(`[Client] Status broadcast: ${status}`);
+            logger.info('Client', `Status broadcast: ${status}`);
         }
     }
 
@@ -132,7 +143,7 @@ class OSCRelayClient {
                 const regex = new RegExp(pattern.replace('*', '.*'));
                 return regex.test(message.address);
             } catch (err) {
-                console.warn(`[Client] Invalid blacklist pattern: ${pattern}`);
+                logger.warn('Client', `Invalid blacklist pattern: ${pattern}`);
                 return false;
             }
         });
@@ -146,79 +157,92 @@ class OSCRelayClient {
         process.stdin.on('keypress', (str, key) => {
             if (key.sequence === str) {
                 if (key.ctrl && key.name === 'c') {                             
-                    console.log('[Client] Shutting down...');
+                    logger.info('Client', 'Shutting down...');
                     this.cleanup();
                     process.exit();
                 } else if (key.name === 't') {
                     const testValue = (Math.random() * 2) - 1;
-                    console.log(`[Client] Sending test float: /avatar/parameters/Float ${testValue}`);
+                    logger.info('Client', `Sending test float: /avatar/parameters/Float ${testValue}`);
                     this.oscManager.send(this.config.osc.local.sendPort, '/avatar/parameters/Float', testValue);
                 } else if (key.name === 'r') {
                     const testValue = Math.round(Math.random());
-                    console.log(`[Client] Sending test int: /avatar/parameters/Int ${testValue}`);
+                    logger.info('Client', `Sending test int: /avatar/parameters/Int ${testValue}`);
                     this.oscManager.send(this.config.osc.local.sendPort, '/avatar/parameters/Int', testValue);
                 } else if (key.name === 'b') {
                     const testValue = Math.random() > 0.5 ? 1 : 0;
-                    console.log(`[Client] Sending test bool: /avatar/parameters/IsLocal ${testValue}`);
+                    logger.info('Client', `Sending test bool: /avatar/parameters/IsLocal ${testValue}`);
                     this.oscManager.send(this.config.osc.local.sendPort, '/avatar/parameters/IsLocal', testValue);
                 } else if (key.name === 'v') {
                     // Test VRChat specific parameters that should trigger responses
-                    console.log(`[Client] Sending VRChat parameter test`);
+                    logger.info('Client', 'Sending VRChat parameter test');
                     this.oscManager.send(this.config.osc.local.sendPort, '/avatar/parameters/VelocityX', 0.5);
                     this.oscManager.send(this.config.osc.local.sendPort, '/avatar/parameters/MuteSelf', 0);
                 } else if (key.name === 'd') {
                     // Output debug info about current configuration
-                    console.log(`[Client] Debug Info:`);
-                    console.log(`  - OSC Send Port: ${this.config.osc.local.sendPort}`);
-                    console.log(`  - OSC Receive Port: ${this.config.osc.local.receivePort}`);
-                    console.log(`  - OSC Query Port: ${this.config.osc.local.queryPort}`);
-                    console.log(`  - Local IP: ${this.config.osc.local.ip}`);
+                    logger.info('Client', 'Debug Info:');
+                    logger.info('Client', `  - OSC Send Port: ${this.config.osc.local.sendPort}`);
+                    logger.info('Client', `  - OSC Receive Port: ${this.config.osc.local.receivePort}`);
+                    logger.info('Client', `  - OSC Query Port: ${this.config.osc.local.queryPort}`);
+                    logger.info('Client', `  - Local IP: ${this.config.osc.local.ip}`);
+                } else if (key.name === 'q') {
+                    // List discovered OSCQuery services
+                    const services = this.oscQueryManager?.getDiscoveredServices() || [];
+                    logger.info('Client', `Discovered OSCQuery services (${services.length}):`);
+                    services.forEach((service, index) => {
+                        logger.info('Client', `  ${index + 1}. ${service.name} at ${service.host}:${service.port} (OSC port: ${service.oscPort || 'unknown'})`);
+                    });
+                } else if (key.name === 'p') {
+                    // Send ping to VRChat
+                    logger.info('Client', 'Sending ping to VRChat');
+                    this.oscQueryManager?.sendInitialPingToVRChat();
                 }
             }
         });
-        console.log('[Client] Keyboard controls enabled:');
-        console.log('  Press "t" to send a random float (-1 to 1) to /avatar/parameters/Float');
-        console.log('  Press "r" to send a random int (0 or 1) to /avatar/parameters/Int');
-        console.log('  Press "b" to send a random bool (0 or 1) to /avatar/parameters/IsLocal');
-        console.log('  Press "v" to send VRChat-specific parameter tests');
-        console.log('  Press "d" to display debug information');
-        console.log('  Press Ctrl+C to exit');
+        logger.info('Client', 'Keyboard controls enabled:');
+        logger.info('Client', '  Press "t" to send a random float (-1 to 1) to /avatar/parameters/Float');
+        logger.info('Client', '  Press "r" to send a random int (0 or 1) to /avatar/parameters/Int');
+        logger.info('Client', '  Press "b" to send a random bool (0 or 1) to /avatar/parameters/IsLocal');
+        logger.info('Client', '  Press "v" to send VRChat-specific parameter tests');
+        logger.info('Client', '  Press "d" to display debug information');
+        logger.info('Client', '  Press "q" to list discovered OSCQuery services');
+        logger.info('Client', '  Press "p" to send a ping to VRChat');
+        logger.info('Client', '  Press Ctrl+C to exit');
     }
 
     cleanup() {
-        console.log('[Client] Running cleanup...');
+        logger.info('Client', 'Running cleanup...');
         
         if (this.oscQueryManager) {
             try {
                 this.oscQueryManager.close();
             } catch (error) {
-                console.error(`[Client] Error during OSCQueryManager cleanup: ${error.message}`);
+                logger.error('Client', `Error during OSCQueryManager cleanup: ${error.message}`);
             }
         }
         
-        console.log('[Client] Cleanup completed');
+        logger.info('Client', 'Cleanup completed');
     }
 }
 
 if (require.main === module) {
     const client = new OSCRelayClient();
-    console.log('[Client] Starting connection process...');
+    logger.info('Client', 'Starting connection process...');
     
     process.on('SIGINT', () => {
-        console.log('[Client] Received SIGINT, shutting down gracefully...');
+        logger.info('Client', 'Received SIGINT, shutting down gracefully...');
         client.cleanup();
         process.exit(0);
     });
     
     process.on('SIGTERM', () => {
-        console.log('[Client] Received SIGTERM, shutting down gracefully...');
+        logger.info('Client', 'Received SIGTERM, shutting down gracefully...');
         client.cleanup();
         process.exit(0);
     });
     
     process.on('unhandledRejection', (reason, promise) => {
-        console.error('[Client] Unhandled Rejection at:', promise);
-        console.error('[Client] Reason:', reason);
+        logger.error('Client', 'Unhandled Rejection at: ' + JSON.stringify(promise));
+        logger.error('Client', 'Reason: ' + reason);
     });
 }
 
